@@ -1,6 +1,13 @@
 <!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#1d6a43">
-<title>สมุดสกอร์กอล์ฟ</title>
+<title>ParLive</title>
+<meta name="apple-mobile-web-app-title" content="ParLive">
+<meta name="application-name" content="ParLive">
+<meta name="description" content="ParLive · สกอร์กอล์ฟสด ก๊วน นัดออกรอบ และห้องเชียร์">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
@@ -227,10 +234,12 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .optin input{margin-top:4px}
 details.panel summary{cursor:pointer;list-style:none}
 details.panel summary::-webkit-details-marker{display:none}
+.brand{letter-spacing:-.01em}
+.brand span{color:var(--accent)}
 </style>
 </head><body>
 
-<div id="app"><p class="muted">กำลังเปิดสมุดสกอร์…</p></div>
+<div id="app"><p class="muted">กำลังเปิด ParLive…</p></div>
 <div id="toast" class="toast" hidden></div>
 
 <script>
@@ -568,7 +577,7 @@ function render(){
   const ci2=document.getElementById('chatin');if(ci2&&cv!=null){ci2.value=cv;if(cf){ci2.focus();try{ci2.setSelectionRange(cv.length,cv.length)}catch(e){}}}
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
-function header(sub){return `<div><div class="label">${sub||'บันทึกทุกช็อต ทุกหลุม'}</div><h1>สมุดสกอร์กอล์ฟ</h1></div>`}
+function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
 function homeView(){
   const list=sorted();const done=list.filter(r=>r.complete);const open=list.find(r=>!r.complete);
   let h=header();
@@ -1379,7 +1388,7 @@ function gBoardView(){
       h+=`<div class="panel"><h2>สกอร์การ์ดของคุณ</h2>
         <div class="muted" style="font-size:.88rem">${!allDone?`ยังขาดอีก ${G.pars.length-me.thru} หลุม`:me.conf?`มี ${me.conf} หลุมที่ค่ายังไม่ตรงกัน คุยกับเพื่อนแล้วแก้ให้ตรงก่อน`:signed?'คุณยืนยันสกอร์การ์ดแล้ว ถ้ามีการแก้สกอร์ การยืนยันจะถูกยกเลิก':'สกอร์ครบและตรงกันทุกหลุมแล้ว'}</div>
         ${ok&&!signed&&!gRO?`<button class="btn primary full" data-act="gsign" data-p="${gMe}">ยืนยันสกอร์การ์ดของฉัน</button>`:''}
-        ${me.thru?`<button class="btn full" data-act="gsave">บันทึกเป็นรอบของฉันในสมุดสกอร์</button>`:''}</div>`;
+        ${me.thru?`<button class="btn full" data-act="gsave">บันทึกเป็นรอบของฉัน</button>`:''}</div>`;
       const others=rows.filter(r=>r.p.id!==gMe&&r.thru===G.pars.length&&!r.conf&&!r.sig.includes(gMe));
       if(others.length&&!gRO)h+=`<div class="panel"><h2>เซ็นรับรองให้เพื่อน</h2>${others.map(r=>`<button class="btn full" data-act="gsign" data-p="${r.p.id}">รับรองสกอร์การ์ดของ ${esc(r.p.name)} (${r.g})</button>`).join('')}</div>`;
     }
@@ -1447,7 +1456,7 @@ function gClick(a,b){
     try{navigator.clipboard.writeText(t).then(()=>toast('คัดลอกลิงก์ผู้ชมแล้ว'),()=>fallbackCopy(t))}catch(e){fallbackCopy(t)}return true}
   if(a==='gsave'){const r={id:'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),course:G.course,date:G.date,holes:G.holes,start:G.start||0,
       pars:G.pars.slice(),scores:G.pars.map((p,i)=>({s:hStat(gMe,i).val,p:null,f:null,hz:[],shots:[]})),complete:G.pars.every((p,i)=>hStat(gMe,i).val!=null),createdAt:Date.now(),group:G.code};
-    chain=chain.then(()=>store.save(r)).then(()=>{rounds=rounds.filter(x=>x.id!==r.id).concat([r]);toast('บันทึกลงสมุดสกอร์แล้ว เพิ่มพัตต์และแฟร์เวย์ได้ในหน้ารอบ')}).catch(()=>toast('บันทึกไม่สำเร็จ'));return true}
+    chain=chain.then(()=>store.save(r)).then(()=>{rounds=rounds.filter(x=>x.id!==r.id).concat([r]);toast('บันทึกเป็นรอบของคุณแล้ว เพิ่มพัตต์และแฟร์เวย์ได้ในหน้ารอบ')}).catch(()=>toast('บันทึกไม่สำเร็จ'));return true}
   return false;
 }
 
