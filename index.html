@@ -67,6 +67,12 @@ details.panel>summary::-webkit-details-marker{display:none}
 .bdg .bh{font-size:.68rem;color:var(--muted);line-height:1.25}
 .bdg.on{background:var(--surface);border-color:var(--accent)}
 .bdg.on .be{filter:none;opacity:1}.bdg.on .bn{color:var(--ink)}
+.rec{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.rec>span:first-child{min-width:0}
+.recc>summary{list-style:none;cursor:pointer;padding:8px 0}.recc>summary::-webkit-details-marker{display:none}
+.dream{display:grid;grid-template-columns:repeat(9,1fr);gap:4px;padding:8px 0}
+.dream span{display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--f-num);font-size:.8rem}
+.dream i{font-style:normal;font-size:.62rem;color:var(--muted)}
 .newb{border-color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
 .tile .v{font-family:var(--f-num);font-size:1.5rem;font-weight:600}
@@ -482,6 +488,108 @@ function badgesHTML(){
 }
 function roundBadgesHTML(r){if(!r.complete)return'';const nb=badgesOf(badgeBook(),r.id);if(!nb.length)return'';
   return `<div class="panel newb"><h2>🏅 รอบนี้ได้เหรียญใหม่</h2><div class="bgrid">${nb.map(b=>`<div class="bdg on"><span class="be">${b.e}</span><span class="bn">${b.n}</span><span class="bh">${b.h}</span></div>`).join('')}</div></div>`}
+/* ---------- แฮนดิแคปอัตโนมัติ (WHS แบบง่าย) ----------
+   only full 18-hole rounds; course rating = par and slope 113 because the app has neither,
+   each hole capped at par+5 until there is an index, then at about net double bogey */
+const chron=(a,b)=>(a.date||'').localeCompare(b.date||'')||(a.createdAt||0)-(b.createdAt||0);
+const WHS_T={3:[1,-2],4:[1,-1],5:[1,0],6:[2,-1],7:[2,0],8:[2,0],9:[3,0],10:[3,0],11:[3,0],12:[4,0],13:[4,0],14:[4,0],15:[5,0],16:[5,0],17:[6,0],18:[6,0],19:[7,0],20:[8,0]};
+function hIndex(ds){const n=ds.length;if(n<3)return null;const [k,adj]=WHS_T[Math.min(n,20)];const lo=ds.slice().sort((a,b)=>a-b).slice(0,k);
+  return Math.min(54,Math.round((lo.reduce((a,b)=>a+b,0)/k+adj)*10)/10)}
+function hcpCalc(){
+  const L=rounds.filter(r=>r.complete&&isFull18(r)).sort(chron),diffs=[],hist=[];let idx=null;
+  L.forEach(r=>{const cap=idx==null?5:2+Math.max(0,Math.round(idx/18));
+    let ags=0,par=0;r.scores.forEach((x,i)=>{ags+=Math.min(x.s,r.pars[i]+cap);par+=r.pars[i];});
+    diffs.push(ags-par);idx=hIndex(diffs.slice(-20));if(idx!=null)hist.push({date:r.date,idx});});
+  return{idx,n:L.length,hist,prev:hist.length>1?hist[hist.length-2].idx:null};
+}
+const fmtIdx=v=>v==null?'–':v<0?'+'+(-v).toFixed(1):v.toFixed(1);
+/* ---------- สถิติส่วนตัวแยกสนาม ---------- */
+function courseRecords(){
+  const by={};rounds.filter(r=>r.complete).forEach(r=>{(by[r.course]=by[r.course]||[]).push(r)});
+  return Object.entries(by).map(([course,L])=>{const R={course,n:L.length};
+    L.forEach(r=>{const t=totals(r),st=r.start||0,d=rdiffs(r);
+      if(isFull18(r)&&(!R.low||t.strokes<R.low.v))R.low={v:t.strokes,p:t.strokes-t.par,date:r.date};
+      [[0,9],[9,18]].forEach(([a,b])=>{const ii=[];for(let i=a;i<b&&i<r.holes;i++)ii.push(i);if(ii.length!==9||ii.some(i=>r.scores[i].s==null))return;
+        const v=ii.reduce((x,i)=>x+r.scores[i].s,0),pp=ii.reduce((x,i)=>x+r.pars[i],0),lab=(a+st)===0?'OUT':'IN';if(!R.low9||v<R.low9.v)R.low9={v,p:v-pp,lab,date:r.date};});
+      const nb=nBird(r);if(nb&&(!R.bird||nb>R.bird.v))R.bird={v:nb,date:r.date};
+      if(isFull18(r)&&r.scores.every(x=>x.p!=null)&&(!R.putt||t.putts<R.putt.v))R.putt={v:t.putts,date:r.date};
+      const run=runOf(d,x=>x<=0);if(run>=2&&(!R.run||run>R.run.v))R.run={v:run,date:r.date};
+      r.scores.forEach((x,i)=>{if(x.s==null)return;const num=i+1+st;R.holes=R.holes||{};const h=R.holes[num]=R.holes[num]||{best:99,par:r.pars[i],sum:0,n:0};h.best=Math.min(h.best,x.s);h.sum+=x.s;h.n++;h.par=r.pars[i];});});
+    const H=R.holes||{};if([...Array(18)].every((_,k)=>H[k+1]))R.dream=[...Array(18)].map((_,k)=>H[k+1].best);
+    return R;}).sort((a,b)=>b.n-a.n);
+}
+function recordsHTML(){
+  const C=courseRecords();if(!C.length)return'';
+  const row=(l,v,sub)=>`<div class="rec"><span>${l}</span><span class="num"><b>${v}</b>${sub?` <span class="muted">${sub}</span>`:''}</span></div>`;
+  const one=R=>{const H=R.holes||{},nums=Object.keys(H).map(Number).sort((a,b)=>a-b),dpar=R.dream?nums.reduce((a,k)=>a+H[k].par,0):0;
+    const fav=nums.filter(k=>H[k].n>=2).map(k=>({k,d:H[k].sum/H[k].n-H[k].par})).sort((a,b)=>a.d-b.d);
+    return `<details class="recc" ${C.length===1?'open':''}><summary><b>${esc(R.course)}</b> <span class="muted">${R.n} รอบ ›</span></summary>
+      ${R.low?row('สกอร์ต่ำสุด 18 หลุม',R.low.v,`${toPar(R.low.p)} · ${fmtDate(R.low.date)}`):''}
+      ${R.low9?row('9 หลุมดีสุด',R.low9.v,`${R.low9.lab} ${toPar(R.low9.p)} · ${fmtDate(R.low9.date)}`):''}
+      ${R.bird?row('เบอร์ดี้มากสุดในรอบ',R.bird.v,fmtDate(R.bird.date)):''}
+      ${R.putt?row('พัตต์น้อยสุด 18 หลุม',R.putt.v,fmtDate(R.putt.date)):''}
+      ${R.run?row('พาร์หรือดีกว่าติดกันยาวสุด',R.run.v+' หลุม',fmtDate(R.run.date)):''}
+      ${fav.length>=2?row('หลุมที่ถนัด',`หลุม ${fav[0].k}`,`เฉลี่ย ${(fav[0].d>0?'+':'')+fav[0].d.toFixed(1)}`)+row('หลุมปราบเซียน',`หลุม ${fav[fav.length-1].k}`,`เฉลี่ย +${fav[fav.length-1].d.toFixed(1)}`):''}
+      ${R.dream?`<div class="rec"><span>สกอร์ในฝัน <span class="muted">(รวมหลุมที่ดีที่สุดของคุณ)</span></span><span class="num"><b>${R.dream.reduce((a,b)=>a+b,0)}</b> <span class="muted">${toPar(R.dream.reduce((a,b)=>a+b,0)-dpar)}</span></span></div>
+        <div class="dream">${R.dream.map((v,k)=>`<span><i>${k+1}</i>${mark(v,H[k+1].par)}</span>`).join('')}</div>`:''}
+    </details>`};
+  return `<div class="panel"><h2>สถิติส่วนตัว</h2>${C.map(one).join('')}</div>`;
+}
+/* ---------- ParLive Wrapped ---------- */
+function wrapPeriods(){const L=rounds.filter(r=>r.complete&&r.date),m=[...new Set(L.map(r=>r.date.slice(0,7)))].sort().reverse(),y=[...new Set(L.map(r=>r.date.slice(0,4)))].sort().reverse();
+  return m.slice(0,6).concat(y)}
+function perLabel(per){if(per.length===4)return 'ปี '+(+per+543);try{return new Date(per+'-01T00:00:00').toLocaleDateString('th-TH',{month:'long',year:'numeric'})}catch(e){return per}}
+function wrapData(per){
+  const L=rounds.filter(r=>r.complete&&(r.date||'').startsWith(per)).sort(chron),F=L.filter(isFull18);
+  const holes=[];L.forEach(r=>played(r).forEach(h=>holes.push(Object.assign({},h,{num:h.i+1+(r.start||0),course:r.course}))));
+  const W={per,label:perLabel(per),n:L.length,holes:holes.length};
+  if(F.length){const T=F.map(totals);W.avg=T.reduce((a,t)=>a+t.strokes,0)/T.length;const bi=T.reduce((b,t,i)=>t.strokes<T[b].strokes?i:b,0);W.best={v:T[bi].strokes,p:T[bi].strokes-T[bi].par,course:F[bi].course,date:F[bi].date};}
+  W.bird=holes.filter(h=>h.s-h.par<=-1).length;W.eagle=holes.filter(h=>h.s-h.par<=-2).length;
+  W.pob=holes.length?Math.round(100*holes.filter(h=>h.s<=h.par).length/holes.length):null;
+  const pu=holes.filter(h=>h.p!=null);W.putt=pu.length?pu.reduce((a,h)=>a+h.p,0)/pu.length:null;
+  const fw=holes.filter(h=>h.par>=4&&h.f);W.fir=fw.length>=5?Math.round(100*fw.filter(h=>h.f==='hit').length/fw.length):null;
+  const cc={};L.forEach(r=>cc[r.course]=(cc[r.course]||0)+1);W.course=Object.entries(cc).sort((a,b)=>b[1]-a[1])[0];
+  const hk={};holes.forEach(h=>{const k=h.course+'|'+h.num;(hk[k]=hk[k]||{num:h.num,course:h.course,sum:0,n:0}).sum+=h.s-h.par;hk[k].n++;});
+  const hs=Object.values(hk).filter(x=>x.n>=2).map(x=>Object.assign(x,{d:x.sum/x.n})).sort((a,b)=>a.d-b.d);if(hs.length>=2){W.fav=hs[0];W.bad=hs[hs.length-1];}
+  const book=badgeBook();W.badges=BADGES.filter(b=>book.got[b.id]&&(book.got[b.id].date||'').startsWith(per));
+  const hc=hcpCalc().hist.filter(x=>(x.date||'').startsWith(per));if(hc.length)W.hcp=hc[hc.length-1].idx;
+  return W;
+}
+function srcWrap(per){return{kind:'wrap',per,date:per}}
+function wrapOpts(s){const P=wrapPeriods();
+  return `<div class="field"><span class="label">ช่วงเวลา</span><div class="pick">${P.map(p=>`<button class="btn sm" data-act="shper" data-v="${p}" aria-pressed="${s.src.per===p}">${perLabel(p)}</button>`).join('')}</div></div>
+    <div class="field"><label class="label" for="shname">ชื่อที่แสดง</label><input id="shname" class="cin" maxlength="30" value="${esc(s.name)}" placeholder="เว้นว่างได้"></div>`}
+async function drawWrap(c,W,H,src){
+  const D=wrapData(src.per),tall=H/W>1.5;
+  const g=c.createLinearGradient(0,0,W,H);g.addColorStop(0,'#123d28');g.addColorStop(.55,'#1d6a43');g.addColorStop(1,'#0b2a1a');c.fillStyle=g;c.fillRect(0,0,W,H);
+  c.globalAlpha=.07;c.fillStyle='#7dffae';c.beginPath();c.arc(W*0.95,H*0.08,W*0.45,0,7);c.fill();c.beginPath();c.arc(W*0.02,H*0.95,W*0.4,0,7);c.fill();c.globalAlpha=1;
+  logo(c,W*0.05,H*0.03,W*0.05,true);
+  c.textAlign='left';c.textBaseline='alphabetic';let y=H*0.03+W*0.15;
+  c.fillStyle='#7dffae';c.font=`700 ${W*0.042}px "Bai Jamjuree",sans-serif`;c.fillText('WRAPPED',W*0.05,y);y+=W*0.085;
+  c.fillStyle='#fff';c.font=`700 ${W*0.075}px "Bai Jamjuree",sans-serif`;c.fillText(D.label,W*0.05,y,W*0.9);y+=W*0.06;
+  if(SH.name){c.globalAlpha=.85;c.font=`600 ${W*0.038}px "IBM Plex Sans Thai",sans-serif`;c.fillText(SH.name,W*0.05,y);c.globalAlpha=1;}
+  y+=tall?W*0.07:W*0.03;
+  // hero: a big round count on tall cards, one line on square ones
+  if(tall){c.font=`700 ${W*0.24}px "IBM Plex Mono",monospace`;c.fillStyle='#fff';const hero=String(D.n);c.fillText(hero,W*0.05,y+W*0.2);
+    const hw=c.measureText(hero).width;c.font=`700 ${W*0.05}px "Bai Jamjuree",sans-serif`;c.fillText('รอบ',W*0.07+hw,y+W*0.2);
+    c.font=`500 ${W*0.032}px "IBM Plex Sans Thai",sans-serif`;c.globalAlpha=.8;c.fillText(`${D.holes} หลุม${D.course?` · ประจำที่ ${D.course[0]}`:''}`,W*0.07+hw,y+W*0.13,W*0.9-hw);c.globalAlpha=1;y+=W*0.27;}
+  else{c.fillStyle='#fff';c.font=`700 ${W*0.05}px "Bai Jamjuree",sans-serif`;const t1=`${D.n} รอบ`;c.fillText(t1,W*0.05,y+W*0.05);const w1=c.measureText(t1).width;
+    c.font=`500 ${W*0.03}px "IBM Plex Sans Thai",sans-serif`;c.globalAlpha=.8;c.fillText(`· ${D.holes} หลุม${D.course?` · ประจำที่ ${D.course[0]}`:''}`,W*0.07+w1,y+W*0.05,W*0.88-w1);c.globalAlpha=1;y+=W*0.09;}
+  const tiles=[['เฉลี่ย 18 หลุม',D.avg!=null?D.avg.toFixed(1):'–'],['ดีที่สุด',D.best?`${D.best.v}`:'–',D.best?toPar(D.best.p):''],['เบอร์ดี้',String(D.bird),D.eagle?`อีเกิล ${D.eagle}`:''],
+    ['พาร์หรือดีกว่า',D.pob!=null?D.pob+'%':'–'],['พัตต์/หลุม',D.putt!=null?D.putt.toFixed(2):'–'],D.hcp!=null?['แฮนดิแคป',fmtIdx(D.hcp)]:['ลงแฟร์เวย์',D.fir!=null?D.fir+'%':'–']];
+  const cols=tall?2:3,gap=W*0.025,tw=(W*0.9-gap*(cols-1))/cols,rowsN=Math.ceil(tiles.length/cols);
+  const extra=(D.fav?1:0)+(D.badges.length?1:0),avail=H*0.965-y-extra*W*0.085,th=Math.min(W*(tall?0.25:0.17),(avail-gap*(rowsN-1))/rowsN);
+  tiles.forEach(([l,v,sub],k)=>{const x=W*0.05+(k%cols)*(tw+gap),yy=y+Math.floor(k/cols)*(th+gap);
+    rr(c,x,yy,tw,th,W*0.03);c.fillStyle='rgba(255,255,255,.1)';c.fill();
+    c.fillStyle='rgba(255,255,255,.75)';c.font=`600 ${Math.min(th*0.15,W*0.03)}px "IBM Plex Sans Thai",sans-serif`;c.fillText(l,x+tw*0.08,yy+th*0.27,tw*0.86);
+    c.fillStyle='#fff';c.font=`700 ${Math.min(th*0.38,tw*0.28)}px "IBM Plex Mono",monospace`;c.fillText(v,x+tw*0.08,yy+th*0.7,tw*0.86);
+    if(sub){c.fillStyle='#7dffae';c.font=`600 ${Math.min(th*0.15,W*0.03)}px "IBM Plex Sans Thai",sans-serif`;c.fillText(sub,x+tw*0.08,yy+th*0.9,tw*0.86);}});
+  y+=rowsN*(th+gap)+W*0.02;
+  const line=(t,col)=>{c.fillStyle=col||'#fff';c.font=`600 ${W*0.034}px "IBM Plex Sans Thai",sans-serif`;c.fillText(t,W*0.05,y+W*0.04,W*0.9);y+=W*0.065;};
+  if(D.fav&&y<H*0.93){line(`💚 หลุมที่ถนัด: หลุม ${D.fav.num} (${D.fav.d>0?'+':''}${D.fav.d.toFixed(1)})  ·  😈 ปราบเซียน: หลุม ${D.bad.num} (+${D.bad.d.toFixed(1)})`);}
+  if(D.badges.length&&y<H*0.93){c.fillStyle='#fff';c.font=`600 ${W*0.034}px "IBM Plex Sans Thai",sans-serif`;c.fillText('🏅 เหรียญใหม่',W*0.05,y+W*0.04);
+    c.font=`${W*0.055}px sans-serif`;c.fillText(D.badges.slice(0,8).map(b=>b.e).join(' '),W*0.3,y+W*0.05,W*0.65);y+=W*0.08;}
+}
 const fmtDate=d=>{try{return new Date(d+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'})}catch(e){return d}};
 const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -676,7 +784,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.14-b';
+const APPV='2026.10.14-c';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -728,16 +836,23 @@ function homeView(){
       <div class="tile"><span class="label">ลงแฟร์เวย์</span><span class="v">${st.fir!=null?st.fir+'%':'–'}</span></div>
       <div class="tile"><span class="label">GIR</span><span class="v">${st.gir!=null?st.gir+'%':'–'}</span></div>
       <div class="tile"><span class="label">พัตต์ต่อหลุม</span><span class="v">${st.putts??'–'}</span></div>
-      <div class="tile"><span class="label">เฉลี่ยสกอร์รวม 18 หลุม</span>${avg18(done)}</div></div>`;
+      <div class="tile"><span class="label">เฉลี่ยสกอร์รวม 18 หลุม</span>${avg18(done)}</div>
+      ${hcpTile()}</div>`;
     h+=trendChart(done);
   }
   h+=badgesHTML();
+  if(done.length){h+=recordsHTML();h+=`<button class="btn full gbtn" data-act="wrapcard"><span>🎁 ParLive Wrapped</span><span class="muted" style="font-weight:500;font-size:.82rem">การ์ดสรุปรายเดือน / รายปี แชร์ลงโซเชียล</span></button>`;}
   h+=`<div class="panel"><h2>รอบทั้งหมด</h2><div class="list">${list.map(r=>{const t=totals(r);return `<button class="item" data-act="open" data-id="${r.id}">
     <div style="min-width:0"><div class="t">${esc(r.course)}</div><div class="muted" style="font-size:.85rem">${fmtDate(r.date)} · ${r.holes} หลุม${r.complete?'':' · ยังไม่จบ'}</div></div>
     <span class="num" style="font-size:1.15rem;font-weight:600">${t.n?t.strokes:'–'}</span>
     <span class="badge ${relCls(t.strokes-t.par)}">${t.n?toPar(t.strokes-t.par):'–'}</span></button>`}).join('')}</div></div>`;
   return h+backupHTML()+`<div class="muted" style="font-size:.7rem;text-align:center">ParLive เวอร์ชัน ${APPV}</div>`;
 }
+function hcpTile(){const H=hcpCalc();
+  if(H.idx==null)return `<div class="tile" style="grid-column:1/-1"><span class="label">แฮนดิแคป (อัตโนมัติ)</span><span class="v">–</span><span class="muted" style="font-size:.78rem">ต้องมีรอบที่เล่นครบ 18 หลุมอีก ${3-H.n} รอบ</span></div>`;
+  const ch=H.prev!=null?Math.round((H.idx-H.prev)*10)/10:0;
+  return `<div class="tile" style="grid-column:1/-1"><span class="label">แฮนดิแคป (อัตโนมัติ · ประมาณ)</span><span class="v">${fmtIdx(H.idx)}</span>
+    <span class="muted" style="font-size:.78rem">${ch?`<span class="${ch<0?'u':'o'} num" style="color:var(${ch<0?'--birdie':'--bogey'})">${ch<0?'▼ ดีขึ้น '+(-ch).toFixed(1):'▲ '+ch.toFixed(1)}</span> · `:''}จาก ${Math.min(H.n,20)} รอบล่าสุด (18 หลุม) · ใช้กรอกในก๊วนได้ (ปัดเป็น ${Math.max(0,Math.round(H.idx))})<br>คิดแบบ WHS อย่างง่าย ใช้พาร์แทน Course Rating และ Slope 113 จึงเป็นค่าประมาณ</span></div>`}
 function avgPerHole(list){let s=0,p=0,n=0;list.forEach(r=>{const t=totals(r);s+=t.strokes;p+=t.par;n+=t.n;});if(!n)return'–';const v=(s-p)/n;return (v>0?'+':'')+v.toFixed(2);}
 const full18=list=>list.filter(r=>r.holes===18&&r.scores.every(x=>x.s!=null)).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.createdAt||0)-(b.createdAt||0));
 function avg18(done){
@@ -1549,21 +1664,21 @@ async function shareDraw(){
   if(!SH)return;const my=SH;my.busy=true;if(view==='share')render();
   await fontsReady();
   const [W,H]=SIZES[my.size],cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');
-  try{if(my.src.kind==='gresult'){if(my.theme==='team'&&my.src.team)await drawTeamResult(c,W,H,my.src);else if(my.theme==='grid')await drawResultGrid(c,W,H,my.src);else if(my.theme==='each')await drawResultEach(c,W,H,my.src);else await drawResult(c,W,H,my.src);}else if(my.theme==='photo')await drawPhoto(c,W,H,my.src);else if(my.theme==='route')await drawRoute(c,W,H,my.src);else await drawClean(c,W,H,my.src);}
+  try{if(my.src.kind==='wrap')await drawWrap(c,W,H,my.src);else if(my.src.kind==='gresult'){if(my.theme==='team'&&my.src.team)await drawTeamResult(c,W,H,my.src);else if(my.theme==='grid')await drawResultGrid(c,W,H,my.src);else if(my.theme==='each')await drawResultEach(c,W,H,my.src);else await drawResult(c,W,H,my.src);}else if(my.theme==='photo')await drawPhoto(c,W,H,my.src);else if(my.theme==='route')await drawRoute(c,W,H,my.src);else await drawClean(c,W,H,my.src);}
   catch(e){console.error(e);}
   cv.toBlob(b=>{if(SH!==my)return;if(my.url)URL.revokeObjectURL(my.url);my.blob=b;my.url=URL.createObjectURL(b);my.busy=false;if(view==='share')render();},'image/png');
 }
 function shareView(){
   const s=SH,src=s.src,canRoute=src.kind==='round'&&bestRouteHole(src.round)>=0;
   return `<div class="top"><button class="btn" data-act="shback">‹ กลับ</button></div>
-  <div><div class="label">แชร์ลงโซเชียล</div><h1>${src.kind==='gresult'?'การ์ดผลก๊วน':'การ์ดโชว์สกอร์'}</h1></div>
+  <div><div class="label">แชร์ลงโซเชียล</div><h1>${src.kind==='gresult'?'การ์ดผลก๊วน':src.kind==='wrap'?'ParLive Wrapped':'การ์ดโชว์สกอร์'}</h1></div>
   <div class="shprev ${s.size}">${s.url?`<img src="${s.url}" alt="ตัวอย่างการ์ด">`:''}${s.busy?'<div class="shbusy">กำลังสร้างรูป…</div>':''}</div>
   <div class="muted" style="font-size:.8rem;text-align:center">กดค้างที่รูปเพื่อบันทึกลงอัลบั้มได้เช่นกัน</div>
   <div class="row"><button class="btn primary" data-act="shshare" ${s.url?'':'disabled'}>แชร์</button><button class="btn" data-act="shsave" ${s.url?'':'disabled'}>บันทึกรูป</button></div>
   <div class="panel">
     <div class="field"><span class="label">ขนาด</span><div class="seg">${[['9x16','Story 9:16'],['4x5','โพสต์ 4:5'],['1x1','จัตุรัส']].map(([k,l])=>`<button data-act="shsize" data-v="${k}" aria-pressed="${s.size===k}">${l}</button>`).join('')}</div></div>
     ${src.kind==='gresult'?`<div class="field"><span class="label">แบบ</span><div class="seg">${[src.game==='team'?['team','ผลทีม']:['rank','อันดับ'],['grid','ตารางทุกหลุม'],['each','รายคนทุกหลุม']].map(([k,l])=>`<button data-act="shtheme" data-v="${k}" aria-pressed="${s.theme===k}">${l}</button>`).join('')}</div></div>`:''}
-    ${src.kind==='gresult'?'':`<div class="field"><span class="label">ธีม</span><div class="seg">${[['photo','รูปเต็ม'],['clean','คลีน']].concat(canRoute?[['route','เส้นทางลูก']]:[]).map(([k,l])=>`<button data-act="shtheme" data-v="${k}" aria-pressed="${s.theme===k}">${l}</button>`).join('')}</div></div>
+    ${src.kind==='gresult'?'':src.kind==='wrap'?wrapOpts(s):`<div class="field"><span class="label">ธีม</span><div class="seg">${[['photo','รูปเต็ม'],['clean','คลีน']].concat(canRoute?[['route','เส้นทางลูก']]:[]).map(([k,l])=>`<button data-act="shtheme" data-v="${k}" aria-pressed="${s.theme===k}">${l}</button>`).join('')}</div></div>
     ${s.theme==='photo'?`<div class="row"><button class="btn" data-act="shphoto">${s.photo?'เปลี่ยนรูป':'เลือกรูปของคุณ'}</button>${s.photo?'<button class="btn" data-act="shnophoto">ไม่ใช้รูป</button>':''}</div><input type="file" id="shfile" accept="image/*" hidden>`:''}
     <div class="field"><label class="label" for="shname">ชื่อที่แสดง</label><input id="shname" class="cin" maxlength="30" value="${esc(s.name)}" placeholder="เว้นว่างได้"></div>
     <label class="optin"><input type="checkbox" id="shstats" ${s.stats?'checked':''}><span>โชว์สถิติ (เบอร์ดี้ พัตต์ แฟร์เวย์)</span></label>`}
@@ -1571,7 +1686,7 @@ function shareView(){
 }
 async function shareShare(){
   const s=SH;if(!s||!s.blob)return;const f=new File([s.blob],`parlive-${s.src.date||'card'}.png`,{type:'image/png'});
-  const text=s.src.kind==='gresult'?`ผลก๊วน ${s.src.course} · ParLive`:`${s.src.course} · ${cardSum(s.src).g} (${toPar(cardSum(s.src).toP)}) · ParLive`;
+  const text=s.src.kind==='wrap'?`ParLive Wrapped · ${perLabel(s.src.per)}`:s.src.kind==='gresult'?`ผลก๊วน ${s.src.course} · ParLive`:`${s.src.course} · ${cardSum(s.src).g} (${toPar(cardSum(s.src).toP)}) · ParLive`;
   try{if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],text});return}}catch(e){if(e&&e.name==='AbortError')return}
   shareSave();toast('มือถือนี้แชร์ตรงไม่ได้ บันทึกรูปแล้วโพสต์เองได้เลย');
 }
@@ -1583,6 +1698,7 @@ function shareClick(a,b){
   if(a==='shsave'){shareSave();return true}
   if(a==='shsize'){SH.size=b.dataset.v;shareDraw();return true}
   if(a==='shtheme'){SH.theme=b.dataset.v;shareDraw();return true}
+  if(a==='shper'){SH.src=srcWrap(b.dataset.v);shareDraw();return true}
   if(a==='shphoto'){document.getElementById('shfile').click();return true}
   if(a==='shnophoto'){SH.photo=null;shareDraw();return true}
   return false;
@@ -1939,7 +2055,7 @@ function gClick(a,b){
   if(a==='gopen'){openGroup(b.dataset.code,getKey(b.dataset.code));return true}
   if(a==='gjoin'){openGroup((document.getElementById('gcode')||{}).value);return true}
   if(a==='gnew'){const c0=Object.keys(courses).find(n=>courses[n].isShared)||(sorted()[0]||{}).course||'';
-    gNew={course:c0,date:today(),holes:18,start:0,me:0,players:[{name:'',hcp:null},{name:'',hcp:null},{name:'',hcp:null},{name:'',hcp:null}]};view='gnew';render();return true}
+    const myH=hcpCalc().idx;gNew={course:c0,date:today(),holes:18,start:0,me:0,players:[{name:getLastName()||'',hcp:myH!=null?Math.max(0,Math.round(myH)):null},{name:'',hcp:null},{name:'',hcp:null},{name:'',hcp:null}]};view='gnew';render();return true}
   if(view==='gnew'){readGNew();
     if(a==='gholes'){const n=b.dataset.n;gNew.holes=n==='18'?18:9;gNew.start=n==='9b'?9:0;render();return true}
     if(a==='gadd'){gNew.players.push({name:'',hcp:null,team:gNew.players.length%2?'B':'A'});render();return true}
@@ -2051,6 +2167,7 @@ app.addEventListener('click',e=>{
   if(a==='homecard'){const r=sorted().find(r=>totals(r).n>0);if(r){cur=JSON.parse(JSON.stringify(r));openShare(srcFromRound(cur));}return}
   if(a==='bimport'){document.getElementById('bfile').click();return}
   if(a==='bexport'){exportRounds();return}
+  if(a==='wrapcard'){const P=wrapPeriods();if(P.length)openShare(srcWrap(P[0]));return}
   if(a==='homecardhelp'){toast('ยังไม่มีรอบในเครื่องนี้ กด "เริ่มรอบใหม่" หรือสร้างการ์ดจากแท็บอันดับในก๊วน');return}
   if(a==='gsharecard'&&G&&gMe){openShare(srcFromGroup(gMe));return}
   if(a==='gresultcard'&&G){openShare(srcGroupResult());return}
