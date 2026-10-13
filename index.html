@@ -198,6 +198,19 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .seat.me{background:var(--soft);border-radius:8px}
 .seat.empty{opacity:.6}
 .orgp{border-style:dashed}
+.chatlist{height:min(52vh,460px);overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 2px;overscroll-behavior:contain}
+.msg{max-width:85%;align-self:flex-start;background:var(--bg);border:1px solid var(--line);border-radius:12px 12px 12px 4px;padding:7px 10px;display:flex;flex-direction:column;gap:2px}
+.msg.mine{align-self:flex-end;background:var(--birdie-bg);border-radius:12px 12px 4px 12px}
+.msg .mh{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.75rem}
+.msg .mt{overflow-wrap:anywhere;white-space:pre-wrap}
+.msys{align-self:center;font-size:.8rem;font-weight:600;background:var(--soft);border-radius:999px;padding:3px 12px;text-align:center}
+.cheers{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.cheers .btn{flex:0 0 auto}
+.cin{font:inherit;flex:1 1 160px;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.chatbar .btn{flex:0 0 auto}
+.mute{font-size:.8rem;display:flex;gap:6px;align-items:center}
+.ubadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:999px;background:var(--dbl);color:#fff;font-size:.7rem;line-height:18px;font-family:var(--f-num)}
+.seg button{font-size:.88rem}
 </style>
 </head><body>
 
@@ -523,6 +536,8 @@ async function uploadHoleImage(file){
 /* ---------- views ---------- */
 function render(){
   if(!store)return;
+  const ci=document.getElementById('chatin'),cv=ci?ci.value:null,cf=ci&&document.activeElement===ci;
+  const cl=document.getElementById('chatlist'),nearBottom=!cl||cl.scrollHeight-cl.scrollTop-cl.clientHeight<60,prevTop=cl?cl.scrollTop:0;
   if(view==='home')app.innerHTML=homeView();
   else if(view==='setup')app.innerHTML=setupView();
   else if(view==='play')app.innerHTML=playView();
@@ -534,6 +549,8 @@ function render(){
   else if(view==='enew')app.innerHTML=eFormView();
   else if(view==='event')app.innerHTML=eventView();
   if(view==='play'){const c=app.querySelector('.holebar .cur');if(c)c.scrollIntoView({inline:'center',block:'nearest'});}
+  const ci2=document.getElementById('chatin');if(ci2&&cv!=null){ci2.value=cv;if(cf){ci2.focus();try{ci2.setSelectionRange(cv.length,cv.length)}catch(e){}}}
+  const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'บันทึกทุกช็อต ทุกหลุม'}</div><h1>สมุดสกอร์กอล์ฟ</h1></div>`}
 function homeView(){
@@ -791,12 +808,15 @@ async function initFirebase(){
   const auth=Au.getAuth(app);
   const authReady=new Promise(res=>{let done=false;const fin=u=>{if(!done){done=true;res(u)}};
     Au.onAuthStateChanged(auth,u=>{if(u)fin(u)});Au.signInAnonymously(auth).catch(e=>{fbErr=e&&e.code||'auth';fin(null)});});
-  const W=s=>({exists:s.exists(),id:s.id,data:()=>s.data(),metadata:s.metadata});
+  const W=s=>({exists:s.exists(),id:s.id,data:()=>s.data({serverTimestamps:'estimate'}),metadata:s.metadata});
   const doc=p=>{const r=F.doc(fs,p);return{
     get:async()=>W(await F.getDoc(r)),
     set:(d,merge)=>F.setDoc(r,d,merge?{merge:true}:{}),
     onSnapshot:(f,e)=>F.onSnapshot(r,s=>f(W(s)),e),
     del:field=>F.updateDoc(r,{[field]:F.deleteField()}),
+    remove:()=>F.deleteDoc(r),
+    add:(c,d)=>F.addDoc(F.collection(fs,p+'/'+c),Object.assign({},d,{at:F.serverTimestamp()})),
+    latest:(c,n,f,e)=>F.onSnapshot(F.query(F.collection(fs,p+'/'+c),F.orderBy('at','desc'),F.limit(n)),s=>f({docs:s.docs.map(W)}),e),
     collection:c=>({onSnapshot:(f,e)=>F.onSnapshot(F.collection(fs,p+'/'+c),s=>f({docs:s.docs.map(W)}),e)})}};
   return {doc,authReady,uid:()=>auth.currentUser&&auth.currentUser.uid};
 }
@@ -971,6 +991,68 @@ function eClick(a,b){
   return false;
 }
 
+/* ---------- ห้องเชียร์ ----------
+   groups/<CODE>/chat/<id> = {uid, name, role 'p'|'v', text, at}
+   Players only ever see an unread count on the tab: no toast, sound or vibration. */
+let GC=[],chatLastSend=0;
+const CHEERS=['👏 สวย!','⛳ ลงเลย','🔥 ร้อนแรง','💪 สู้ ๆ','😂 555'];
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v}catch(e){return d}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+const chatSeenKey=()=>'golf-chatseen-'+G.code, chatMuteKey=()=>'golf-chatmute-'+G.code;
+function chatName(){if(!gRO&&gMe&&gMe!=='watch')return pName(gMe);return lsGet('golf-chatname','')}
+const chatRole=()=>(!gRO&&gMe&&gMe!=='watch')?'p':'v';
+const chatOwner=()=>G&&gdb&&G.owner===gdb.uid();
+function chatClosedForDay(){if(!G||!G.date)return false;return Date.now()>new Date(G.date+'T23:59:59+07:00').getTime()+86400000}
+const chatLocked=()=>!!(G&&G.chatLocked)||chatClosedForDay();
+// verified birdies or better become feed items; first-seen time kept per device so the timeline stays stable
+function chatHighlights(){
+  if(!G||!G.pars)return[];const k='golf-hl-'+G.code;let seen={};try{seen=JSON.parse(lsGet(k,'{}'))}catch(e){}
+  const out=[];let changed=false;
+  G.players.forEach(p=>G.pars.forEach((par,i)=>{const s=hStat(p.id,i);if(s.st!=='ok'||s.val==null)return;const d=s.val-par;if(d>-1)return;
+    const id=p.id+'-'+gNum(i)+'-'+s.val;if(!seen[id]){seen[id]=Date.now();changed=true;}
+    out.push({sys:true,at:seen[id],text:`${d<=-2?'🦅':'🐦'} ${p.name} ${diffName(d)} หลุม ${gNum(i)}`});}));
+  if(changed)lsSet(k,JSON.stringify(seen));return out;
+}
+function chatItems(){const m=GC.map(x=>Object.assign({},x));return m.concat(chatHighlights()).sort((a,b)=>a.at-b.at)}
+function chatUnread(){if(!G)return 0;const seen=+lsGet(chatSeenKey(),0),me=gdb&&gdb.uid();return GC.filter(m=>m.at>seen&&m.uid!==me).length}
+function chatMarkSeen(){if(G&&GC.length)lsSet(chatSeenKey(),String(Math.max(...GC.map(m=>m.at))))}
+const hhmm=ms=>new Date(ms).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+function gChatView(){
+  chatMarkSeen();
+  const me=gdb&&gdb.uid(),own=chatOwner(),items=chatItems(),name=chatName(),locked=chatLocked();
+  let h=`<div class="panel chatp"><div class="top"><h2>ห้องเชียร์</h2><span class="muted" style="font-size:.78rem">${GC.length} ข้อความ</span></div>
+    <div class="chatlist" id="chatlist">${items.length?items.map(m=>m.sys?`<div class="msys">${esc(m.text)} <span class="muted">${hhmm(m.at)}</span></div>`:
+      `<div class="msg ${m.uid===me?'mine':''}"><div class="mh"><b>${esc(m.name)}</b>${m.role==='p'?'<span class="chip ok sm">ผู้เล่น</span>':''}<span class="muted">${hhmm(m.at)}</span>${(m.uid===me||own)?`<button class="linkbtn" data-act="cdel" data-id="${esc(m.id)}">ลบ</button>`:''}</div><div class="mt">${esc(m.text)}</div></div>`).join('')
+      :'<div class="muted" style="text-align:center;padding:24px 0">ยังไม่มีข้อความ เริ่มเชียร์ได้เลย</div>'}</div>`;
+  if(locked)h+=`<div class="notice">${chatClosedForDay()?'จบวันแข่งแล้ว ห้องเชียร์เปิดให้อ่านย้อนหลังอย่างเดียว':'ผู้สร้างก๊วนปิดห้องเชียร์ชั่วคราว'}</div>`;
+  else if(!name)h+=`<div class="field"><label class="label" for="chatname">ชื่อที่จะแสดงในห้องเชียร์</label><div class="row"><input id="chatname" class="cin" maxlength="30" autocomplete="off" placeholder="เช่น แฟนคลับบอย"><button class="btn primary" data-act="cname">ตกลง</button></div></div>`;
+  else h+=`<div class="cheers">${CHEERS.map(c=>`<button class="btn sm" data-act="ccheer" data-t="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+    <div class="row chatbar"><input id="chatin" class="cin" maxlength="200" autocomplete="off" placeholder="พิมพ์ในนาม ${esc(name)}…" enterkeyhint="send"><button class="btn primary" data-act="csend">ส่ง</button></div>
+    ${chatRole()==='v'?`<div class="muted" style="font-size:.75rem">แสดงชื่อว่า ${esc(name)} · <button class="linkbtn" data-act="crename">เปลี่ยนชื่อ</button></div>`:''}`;
+  if(chatRole()==='p')h+=`<label class="muted mute"><input type="checkbox" id="chatmute" ${lsGet(chatMuteKey(),'')?'checked':''}> ไม่ต้องแสดงตัวเลขข้อความใหม่บนแท็บ</label>`;
+  if(own)h+=`<div class="row"><button class="btn sm" data-act="clock">${G.chatLocked?'เปิดห้องเชียร์':'ปิดห้องเชียร์ชั่วคราว'}</button><button class="btn sm" data-act="cslow" aria-pressed="${!!G.chatSlow}">${G.chatSlow?'ปิดโหมดช้า':'โหมดช้า (10 วินาที)'}</button></div>`;
+  return h+`</div>`;
+}
+function chatSend(text){
+  text=String(text||'').trim().slice(0,200);if(!text)return;
+  if(chatLocked()){toast('ห้องเชียร์ปิดอยู่');return}
+  const wait=(G.chatSlow?10000:1500)-(Date.now()-chatLastSend);if(wait>0){toast(`รออีก ${Math.ceil(wait/1000)} วินาที`);return}
+  const name=chatName();if(!name){toast('ตั้งชื่อก่อนส่งข้อความ');return}
+  chatLastSend=Date.now();const inp=document.getElementById('chatin');if(inp)inp.value='';
+  gdb.authReady.then(u=>{if(!u)throw{code:'auth'};return gdb.doc('groups/'+G.code).add('chat',{uid:u.uid,name,role:chatRole(),text})})
+    .catch(e=>{console.error(e);toast(e&&e.code==='permission-denied'?'ส่งไม่ได้ ห้องเชียร์อาจปิดอยู่':'ส่งข้อความไม่สำเร็จ');});
+}
+function chatClick(a,b){
+  if(a==='csend'){chatSend((document.getElementById('chatin')||{}).value);return true}
+  if(a==='ccheer'){chatSend(b.dataset.t);return true}
+  if(a==='cname'){const n=((document.getElementById('chatname')||{}).value||'').trim().slice(0,30);if(!n){toast('ใส่ชื่อก่อน');return true}lsSet('golf-chatname',n);render();return true}
+  if(a==='crename'){lsSet('golf-chatname','');render();return true}
+  if(a==='cdel'){gdb.doc(`groups/${G.code}/chat/${b.dataset.id}`).remove().catch(()=>toast('ลบไม่สำเร็จ'));return true}
+  if(a==='clock'&&chatOwner()){gdb.doc('groups/'+G.code).set({chatLocked:!G.chatLocked},true);return true}
+  if(a==='cslow'&&chatOwner()){gdb.doc('groups/'+G.code).set({chatSlow:!G.chatSlow},true);return true}
+  return false;
+}
+
 /* ---------- ก๊วน: shared live scoring ----------
    g/<CODE>            group: course, pars, players[{id,name,hcp}]
    groups/<CODE>/scores/<pid>  one doc per player: h.<hole>.<enteredBy> = strokes, sig.<who> = time
@@ -1009,6 +1091,11 @@ function openGroup(code,key){
     GS={};s.docs.forEach(d=>{GS[d.id]=JSON.parse(JSON.stringify(d.data()));});
     // keep my unsent entries on screen
     Object.entries(gq).forEach(([pid,q])=>{if(q.code===code)mergeDeep(GS[pid]=GS[pid]||{},q.patch);});
+    if(view==='group'&&!G.loading)render();
+  },()=>{}));
+  GC=[];
+  gUnsub.push(ref.latest('chat',150,s=>{
+    GC=s.docs.map(d=>{const v=d.data()||{};const at=v.at&&v.at.toMillis?v.at.toMillis():Date.now();return {id:d.id,uid:v.uid,name:v.name||'?',role:v.role,text:v.text||'',at};}).reverse();
     if(view==='group'&&!G.loading)render();
   },()=>{}));
 }
@@ -1105,10 +1192,12 @@ function groupView(){
   if(gRO)h+=`<div class="notice">โหมดผู้ชม: ดูอันดับและสกอร์การ์ดแบบสด ถ้าคุณเป็นผู้เล่น ให้เปิดจากลิงก์ผู้เล่น</div>`;
   if(!gMe&&!gRO)return h+`<div class="panel"><h2>คุณคือใคร</h2><div class="muted" style="font-size:.88rem">เลือกชื่อตัวเอง เพื่อให้ระบบรู้ว่าใครเป็นคนกรอกแต่ละค่า</div>
     <div class="pick">${G.players.map(p=>`<button class="btn" data-act="gwho" data-p="${p.id}">${esc(p.name)}</button>`).join('')}<button class="btn" data-act="gwho" data-p="watch">ผู้ชม (ดูอย่างเดียว)</button></div></div>`;
-  const tabs=gRO?[['board','อันดับ'],['card','สกอร์การ์ด']]:[['hole','กรอกสกอร์'],['board','อันดับ'],['card','สกอร์การ์ด'],['share','แชร์']];
+  const un=gTab==='chat'?0:chatUnread(),showUn=un&&!(chatRole()==='p'&&lsGet(chatMuteKey(),''));
+  const chatLab=`เชียร์${showUn?` <span class="ubadge">${un>99?'99+':un}</span>`:''}`;
+  const tabs=gRO?[['board','อันดับ'],['chat',chatLab],['card','การ์ด']]:[['hole','กรอก'],['board','อันดับ'],['chat',chatLab],['card','การ์ด'],['share','แชร์']];
   if(gRO&&(gTab==='hole'||gTab==='share'))gTab='board';
   h+=`<div class="seg">${tabs.map(([k,l])=>`<button data-act="gtab" data-t="${k}" aria-pressed="${gTab===k}">${l}</button>`).join('')}</div>`;
-  if(gTab==='hole')h+=gHoleView();else if(gTab==='board')h+=gBoardView();else if(gTab==='share')h+=gShareView();else h+=gCardView();
+  if(gTab==='hole')h+=gHoleView();else if(gTab==='board')h+=gBoardView();else if(gTab==='share')h+=gShareView();else if(gTab==='chat')h+=gChatView();else h+=gCardView();
   if(!gRO)h+=`<div class="muted" style="font-size:.78rem;text-align:center">คุณคือ <b>${gMe==='watch'?'ผู้ชม':esc(pName(gMe))}</b> · <button class="linkbtn" data-act="gwhoreset">เปลี่ยน</button></div>`;
   return h;
 }
@@ -1185,6 +1274,7 @@ function gWrite(pid,val){
   gPatch(pid,patch);render();
 }
 function gClick(a,b){
+  if(view==='group'&&G&&!G.loading&&!G.missing&&chatClick(a,b))return true;
   if(a==='groups'){gStop();G=null;view='groups';render();return true}
   if(a==='gopen'){openGroup(b.dataset.code,getKey(b.dataset.code));return true}
   if(a==='gjoin'){openGroup((document.getElementById('gcode')||{}).value);return true}
@@ -1233,8 +1323,10 @@ function parsFor(course,holes,start){
   return PAR18.slice(start,start+holes);
 }
 function readSetupFields(){const c=document.getElementById('course'),d=document.getElementById('date');if(c)setup.course=c.value.trim();if(d)setup.date=d.value||today();}
+app.addEventListener('keydown',e=>{if(e.target&&e.target.id==='chatin'&&e.key==='Enter'&&!e.isComposing){e.preventDefault();chatSend(e.target.value);}});
 app.addEventListener('change',e=>{
   const el=e.target;
+  if(el.id==='chatmute'&&G){lsSet(chatMuteKey(),el.checked?'1':'');return}
   if(view==='setup'&&el.id==='course'){readSetupFields();setup.pars=parsFor(setup.course,setup.holes,setup.start);render();return}
   if(view!=='play'||!cur)return;
   if(el.id==='holeimg'&&el.files&&el.files[0]){uploadHoleImage(el.files[0]);el.value='';return}
