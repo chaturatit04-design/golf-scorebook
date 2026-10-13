@@ -587,7 +587,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.13-g';
+const APPV='2026.10.13-h';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1450,8 +1450,11 @@ async function gFlush(pid){
 const gPar=i=>G.pars[i];
 const gNum=i=>i+1+(G.start||0);
 function gEntries(pid,i){const h=GS[pid]&&GS[pid].h&&GS[pid].h[String(gNum(i))];return h?Object.entries(h).filter(([,v])=>v!=null):[]}
+// groups made before the option existed keep cross-checking; new groups default to simple mode
+const gVerify=()=>!G||G.verify!==false;
 function hStat(pid,i){
   const e=gEntries(pid,i);if(!e.length)return{st:'none',val:null,e};
+  if(!gVerify()){const self=e.find(x=>x[0]===pid),pick=e.length===1?e[0]:(self||e[e.length-1]);return{st:'ok',val:pick[1],e:[pick],by:pick[0],simple:true};}
   const vals=new Set(e.map(x=>x[1]));const self=e.find(x=>x[0]===pid);
   if(vals.size>1)return{st:'conflict',val:self?self[1]:e[0][1],e};
   return{st:e.length>=2?'ok':'pending',val:e[0][1],e};
@@ -1493,12 +1496,14 @@ function gNewView(){
     ${gNew.players.map((p,i)=>`<div class="prow"><input id="gpn${i}" value="${esc(p.name)}" placeholder="ชื่อผู้เล่น ${i+1}" autocomplete="off"><input id="gph${i}" type="number" inputmode="numeric" min="0" max="54" value="${p.hcp??''}" placeholder="HCP"><button class="btn sm ${gNew.me===i?'primary':''}" data-act="gme" data-i="${i}" aria-pressed="${gNew.me===i}">${gNew.me===i?'ฉัน':'ใช่ฉัน?'}</button></div>`).join('')}
     ${gNew.players.length<10?`<button class="btn sm" data-act="gadd">+ เพิ่มผู้เล่น</button>`:''}
   </div>
+  <label class="optin"><input type="checkbox" id="gverify" ${gNew.verify?'checked':''}><span><b>โหมดตรวจทานสกอร์</b><br><span class="muted">สำหรับงานแข่งจริง ต้องมีคนกรอกตรงกันอย่างน้อย 2 คนและเซ็นรับรองการ์ด ถ้าไม่ติ๊ก ใครในก๊วนกรอกของใครก็ได้ ค่าล่าสุดคือค่าที่ใช้</span></span></label>
   <label class="optin"><input type="checkbox" id="gpublic" ${gNew.public?'checked':''}><span><b>แสดงในหน้า "กำลังแข่งตอนนี้"</b><br><span class="muted">ใครเปิดเว็บก็เห็นชื่อสนาม ผู้นำ และกดเข้ามาดูอันดับได้ ไม่ติ๊กก็ดูได้เฉพาะคนที่มีลิงก์</span></span></label>
   <button class="btn primary full" data-act="gcreate">สร้างก๊วนและรับรหัส</button>`;
 }
 function readGNew(){const v=id=>{const e=document.getElementById(id);return e?e.value:null};
   if(v('gcourse')!=null)gNew.course=v('gcourse').trim();if(v('gdate'))gNew.date=v('gdate');
   const pub=document.getElementById('gpublic');if(pub)gNew.public=pub.checked;
+  const ver=document.getElementById('gverify');if(ver)gNew.verify=ver.checked;
   gNew.players.forEach((p,i)=>{const n=v('gpn'+i),hc=v('gph'+i);if(n!=null)p.name=n.trim();if(hc!=null)p.hcp=hc===''?null:Math.max(0,Math.min(54,+hc));});}
 async function gCreate(){
   readGNew();const ps=gNew.players.filter(p=>p.name);
@@ -1512,7 +1517,7 @@ async function gCreate(){
     const key=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');
     const players=ps.map((p,i)=>({id:'p'+(i+1),name:p.name,hcp:p.hcp??null}));
     const meIdx=ps.indexOf(gNew.players[gNew.me]);
-    const doc={owner:u.uid,public:!!gNew.public,course:gNew.course,date:gNew.date,holes:gNew.holes,start:gNew.start,pars:parsFor(gNew.course,gNew.holes,gNew.start),players,createdAt:Date.now()};
+    const doc={owner:u.uid,public:!!gNew.public,verify:!!gNew.verify,course:gNew.course,date:gNew.date,holes:gNew.holes,start:gNew.start,pars:parsFor(gNew.course,gNew.holes,gNew.start),players,createdAt:Date.now()};
     await gdb.doc('groups/'+code).set(doc);
     await gdb.doc('groupKeys/'+code).set({k:key});
     await gdb.doc(`groups/${code}/members/${u.uid}`).set({k:key,at:Date.now()});
@@ -1551,6 +1556,7 @@ function gShareView(){const L=gLinks();
   ${G.owner===gdb.uid()?`<div class="panel"><h2>สำหรับผู้สร้างก๊วน</h2>
     <button class="btn full" data-act="gpub">${G.public?'เลิกแสดงในหน้า "กำลังแข่งตอนนี้"':'แสดงในหน้า "กำลังแข่งตอนนี้"'}</button>
     ${G.archived?'':G.ended?'<button class="btn full" data-act="gunend">เปิดรอบนี้ต่อ</button>':'<button class="btn danger full" data-act="gend">จบรอบ (เลิกเล่นก่อนครบหลุม)</button>'}
+    ${G.archived?'':`<button class="btn full" data-act="gverify">${gVerify()?'ปิดโหมดตรวจทาน (ใครกรอกก็ได้ ค่าล่าสุดใช้)':'เปิดโหมดตรวจทานสกอร์'}</button>`}
     <button class="btn full" data-act="garchive">${G.archived?'เอาออกจากคลัง':'เก็บเข้าคลัง'}</button>
     <div class="muted" style="font-size:.8rem">เก็บเข้าคลัง: ซ่อนจากรายการและหน้ากำลังแข่ง ข้อมูลยังอยู่ เปิดจากลิงก์ได้แบบอ่านอย่างเดียว</div>
     ${gDelAsk?`<div class="confirm"><strong>ลบก๊วนนี้ถาวร?</strong><span class="muted">สกอร์ ห้องเชียร์ และลิงก์ทั้งหมดจะใช้ไม่ได้ กู้คืนไม่ได้ ผู้เล่นที่กด "บันทึกเป็นรอบของฉัน" ไว้แล้ว รอบนั้นยังอยู่ในสมุดของเขา</span>
@@ -1558,6 +1564,7 @@ function gShareView(){const L=gLinks();
       <div class="row"><button class="btn" data-act="gdelno">ไม่ลบ</button><button class="btn danger" data-act="gdelyes" ${gDeleting?'disabled':''}>${gDeleting?'กำลังลบ…':'ลบถาวร'}</button></div></div>`
       :`<button class="btn danger full" data-act="gdelask">ลบก๊วนถาวร</button>`}</div>`:''}`;}
 function stChip(s,pid){
+  if(s.simple)return `<span class="chip">กรอกโดย ${esc(s.by===pid?'ตัวเอง':pName(s.by))}</span>`;
   if(s.st==='ok')return `<span class="chip ok">✓ ตรงกัน ${s.e.length} คน</span>`;
   if(s.st==='conflict')return `<span class="chip bad">ไม่ตรง: ${s.e.map(([w,v])=>`${esc(w===pid?'ตัวเอง':pName(w))} ${v}`).join(' · ')}</span>`;
   if(s.st==='pending')return `<span class="chip wait">รอคนยืนยัน · ${esc(s.e[0][0]===pid?'ตัวเองกรอก':pName(s.e[0][0])+'กรอก')}</span>`;
@@ -1595,11 +1602,11 @@ function gBoardView(){
     const me=rows.find(r=>r.p.id===gMe);
     if(me){const allDone=me.thru===G.pars.length,ok=allDone&&!me.conf,signed=me.sig.includes(gMe);
       h+=`<div class="panel"><h2>สกอร์การ์ดของคุณ</h2>
-        <div class="muted" style="font-size:.88rem">${!allDone?`ยังขาดอีก ${G.pars.length-me.thru} หลุม`:me.conf?`มี ${me.conf} หลุมที่ค่ายังไม่ตรงกัน คุยกับเพื่อนแล้วแก้ให้ตรงก่อน`:signed?'คุณยืนยันสกอร์การ์ดแล้ว ถ้ามีการแก้สกอร์ การยืนยันจะถูกยกเลิก':'สกอร์ครบและตรงกันทุกหลุมแล้ว'}</div>
-        ${ok&&!signed&&!gRO?`<button class="btn primary full" data-act="gsign" data-p="${gMe}">ยืนยันสกอร์การ์ดของฉัน</button>`:''}
+        <div class="muted" style="font-size:.88rem">${!allDone?`ยังขาดอีก ${G.pars.length-me.thru} หลุม`:!gVerify()?'สกอร์ครบทุกหลุมแล้ว':me.conf?`มี ${me.conf} หลุมที่ค่ายังไม่ตรงกัน คุยกับเพื่อนแล้วแก้ให้ตรงก่อน`:signed?'คุณยืนยันสกอร์การ์ดแล้ว ถ้ามีการแก้สกอร์ การยืนยันจะถูกยกเลิก':'สกอร์ครบและตรงกันทุกหลุมแล้ว'}</div>
+        ${gVerify()&&ok&&!signed&&!gRO?`<button class="btn primary full" data-act="gsign" data-p="${gMe}">ยืนยันสกอร์การ์ดของฉัน</button>`:''}
         ${me.thru?`<button class="btn primary full" data-act="gsharecard">สร้างการ์ดโชว์สกอร์ของฉัน</button><button class="btn full" data-act="gsave">บันทึกเป็นรอบของฉัน</button>`:''}</div>`;
       const others=rows.filter(r=>r.p.id!==gMe&&r.thru===G.pars.length&&!r.conf&&!r.sig.includes(gMe));
-      if(others.length&&!gRO)h+=`<div class="panel"><h2>เซ็นรับรองให้เพื่อน</h2>${others.map(r=>`<button class="btn full" data-act="gsign" data-p="${r.p.id}">รับรองสกอร์การ์ดของ ${esc(r.p.name)} (${r.g})</button>`).join('')}</div>`;
+      if(gVerify()&&others.length&&!gRO)h+=`<div class="panel"><h2>เซ็นรับรองให้เพื่อน</h2>${others.map(r=>`<button class="btn full" data-act="gsign" data-p="${r.p.id}">รับรองสกอร์การ์ดของ ${esc(r.p.name)} (${r.g})</button>`).join('')}</div>`;
     }
   }
   return h;
@@ -1615,12 +1622,14 @@ function gCardView(){
       tr+=`<td class="gc ${s.st}">${s.val!=null?mark(s.val,G.pars[i]):''}</td>`;});tot+=sub;tr+=`<td class="sum">${sub||''}</td>`;});
     if(N===18)tr+=`<td class="sum">${tot||''}</td>`;return `<tr>${tr}</tr>`}).join('');
   return `<div class="cardwrap"><table class="sc"><thead><tr>${head}</tr></thead><tbody><tr>${par}</tr>${rows}</tbody></table></div>
-  <div class="legend"><span><span class="sw ok"></span>ตรงกันแล้ว</span><span><span class="sw pending"></span>รอยืนยัน</span><span><span class="sw conflict"></span>ค่าไม่ตรงกัน</span></div>
+  ${gVerify()?'':'<!--'}<div class="legend"><span><span class="sw ok"></span>ตรงกันแล้ว</span><span><span class="sw pending"></span>รอยืนยัน</span><span><span class="sw conflict"></span>ค่าไม่ตรงกัน</span></div>${gVerify()?'':'-->'}
   <div class="legend"><span><span class="mk e">3</span>อีเกิล</span><span><span class="mk b">3</span>เบอร์ดี้</span><span><span class="mk bo">5</span>โบกี้</span><span><span class="mk db">6</span>ดับเบิลขึ้นไป</span></div>`;
 }
 function gWrite(pid,val){
   if(gRO||!gMe||gMe==='watch')return;
-  const patch={h:{[String(gNum(gHole))]:{[gMe]:val}}};
+  const hk=String(gNum(gHole)),patch={h:{[hk]:{[gMe]:val}}};
+  // simple mode keeps one value per hole: the latest entry replaces anyone else's
+  if(!gVerify()){const cur=(GS[pid]&&GS[pid].h&&GS[pid].h[hk])||{};Object.keys(cur).forEach(k=>{if(k!==gMe&&cur[k]!=null)patch.h[hk][k]=null;});}
   const sig=GS[pid]&&GS[pid].sig;if(sig&&Object.keys(sig).some(k=>sig[k])){patch.sig={};Object.keys(sig).forEach(k=>patch.sig[k]=null);}
   gPatch(pid,patch);render();
 }
@@ -1653,6 +1662,7 @@ function gClick(a,b){
   if(a==='garchive'&&G.owner===gdb.uid()){const on=!G.archived;
     gdb.doc('groups/'+G.code).set({archived:on},true).then(()=>{G.archived=on;if(on){gCleanup(G.code);gRO=true;}else{gRO=true;checkMember(G.code);}
       if(GL[G.code])GL[G.code].archived=on;toast(on?'เก็บเข้าคลังแล้ว':'เอาออกจากคลังแล้ว');render();});return true}
+  if(a==='gverify'&&G.owner===gdb.uid()){const on=!gVerify();gdb.doc('groups/'+G.code).set({verify:on},true).then(()=>{G.verify=on;toast(on?'เปิดโหมดตรวจทานแล้ว':'ปิดโหมดตรวจทานแล้ว');render();});return true}
   if(a==='gdelask'){gDelAsk=true;render();return true}
   if(a==='gdelno'){gDelAsk=false;render();return true}
   if(a==='gdelyes'&&G.owner===gdb.uid()){const v=((document.getElementById('gdelcode')||{}).value||'').trim().toUpperCase();
