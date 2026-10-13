@@ -89,6 +89,13 @@ details.panel>summary::-webkit-details-marker{display:none}
 .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{flex:1;border:0;background:var(--surface);padding:11px 6px;font-weight:600;min-width:0}
 .seg button+button{border-left:1px solid var(--line)}
+.seg.gm{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line)}
+.seg.gm button{border:0!important}
+.hcgrid{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
+.hcgrid button{padding:8px 0;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-family:var(--f-num);font-weight:600}
+.hcgrid button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.pr{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.pr .num{white-space:nowrap;font-weight:700}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
 .pars{display:grid;grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:8px}
 .pars button{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 0;display:flex;flex-direction:column;align-items:center}
@@ -784,7 +791,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.14-c';
+const APPV='2026.10.14-d';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1287,6 +1294,7 @@ const chatLocked=()=>!!(G&&G.chatLocked)||chatClosedForDay();
 // the first time this phone sees each one is kept so the timeline stays stable
 function hlLeader(idx,t){const game=gGame();
   if(game==='team'){let up=0;idx.forEach(i=>{const h=t.holes[i];if(h.w)up+=h.A.sum-h.B.sum;});return up>0?{id:'A',up}:up<0?{id:'B',up:-up}:null;}
+  if(game==='h2h'){const T=h2hCalc(idx).tot,v=G.players.map(p=>T[p.id]),m=Math.max(...v),top=G.players.filter(p=>T[p.id]===m);return top.length===1&&m>0?{id:top[0].id,txt:fmtUp(m)}:null;}
   const sc=G.players.map(p=>{let g=0,par=0,pts=0,p36=0;idx.forEach(i=>{const v=hStat(p.id,i).val;g+=v;par+=G.pars[i];pts+=sfPts(v,G.pars[i]);p36+=s36Pts(v,G.pars[i]);});
     const net=g-(2*idx.length-p36);return {p,k:game==='stableford'?-pts:game==='s36'?net-par:g-par,txt:game==='stableford'?`${pts} แต้ม`:game==='s36'?`Net ${net}`:toPar(g-par)}});
   const m=Math.min(...sc.map(x=>x.k)),top=sc.filter(x=>x.k===m);return top.length===1?{id:top[0].p.id,txt:top[0].txt}:null;}
@@ -1314,7 +1322,7 @@ function chatHighlights(){
   function finishHL(){
     if(G.ended||gAllDone()){
       if(t&&t.ok)add('fin',`🏁 จบรอบ! ${teamStatus(t)}`,9999);
-      else if(!t){const r=gSort(gRows().filter(x=>x.thru))[0];if(r){const g=gGame();add('fin',`🏁 จบรอบ! 🏆 ${r.p.name} ชนะ ${g==='stableford'?r.pts+' แต้ม':g==='s36'?'Net '+r.s36net:`${r.g} (${toPar(r.toPar)})`}`,9999);}}}
+      else if(!t){const r=gSort(gRows().filter(x=>x.thru))[0];if(r){const g=gGame();add('fin',`🏁 จบรอบ! 🏆 ${r.p.name} ชนะ ${g==='h2h'?fmtUp(r.h2h):g==='stableford'?r.pts+' แต้ม':g==='s36'?'Net '+r.s36net:`${r.g} (${toPar(r.toPar)})`}`,9999);}}}
     if(changed)lsSet(k,JSON.stringify(seen));return out;}
 }
 function chatItems(){const m=GC.map(x=>Object.assign({},x));return m.concat(chatHighlights()).sort((a,b)=>a.at-b.at||(a.o||0)-(b.o||0))}
@@ -1415,6 +1423,7 @@ function liveCard(ended){
   if(G.archived)return;
   let ld=lead?lead.p.name:'',lp=lead?lead.toPar:0;
   if(game==='stableford'&&lead){ld=`นำ: ${lead.p.name} ${lead.pts} แต้ม`;lp=null;}
+  if(game==='h2h'&&lead){ld=`นำ: ${lead.p.name} ${fmtUp(lead.h2h)} (แต้มต่อ)`;lp=null;}
   if(game==='s36'&&lead){ld=`นำ: ${lead.p.name} Net ${lead.s36net} (ระบบ 36)`;lp=null;}
   if(game==='team'){const t=teamCalc();ld=t.played?teamStatus(t):'แข่งแบบทีม';lp=null;}
   gdb.doc('live/'+G.code).stampExp({course:G.course,date:G.date,n:G.players.length,thru:gThru(),ended:!!(ended||G.ended||gAllDone()),
@@ -1786,7 +1795,7 @@ function hStat(pid,i){
   return{st:e.length>=2?'ok':'pending',val:e[0][1],e};
 }
 const pName=id=>{const p=(G.players||[]).find(x=>x.id===id);return p?p.name:'?'};
-function gRows(){
+function gRows(){const H2=gGame()==='h2h'&&G.players?h2hCalc():null;
   return (G.players||[]).map(p=>{
     let g=0,par=0,thru=0,conf=0,pend=0;
     G.pars.forEach((pp,i)=>{const s=hStat(p.id,i);if(s.val!=null){g+=s.val;par+=pp;thru++;}if(s.st==='conflict')conf++;if(s.st==='pending')pend++;});
@@ -1795,22 +1804,38 @@ function gRows(){
     let pts=0,p36=0;G.pars.forEach((pp,i)=>{const v=hStat(p.id,i).val;if(v!=null){pts+=sfPts(v,pp);p36+=s36Pts(v,pp);}});
     // System 36 over the holes played so far: handicap = 2 per hole − points
     const s36hcp=2*thru-p36,s36net=g-s36hcp;
-    return {p,g,par,thru,toPar:g-par,net,netPar:net-par,conf,pend,sig,hcp,pts,p36,s36hcp,s36net,s36np:s36net-par};
+    return {p,g,par,thru,toPar:g-par,net,netPar:net-par,conf,pend,sig,hcp,pts,p36,s36hcp,s36net,s36np:s36net-par,h2h:H2?H2.tot[p.id]:0};
   });
 }
 /* ---------- game formats ----------
    stroke: lowest total · stableford: points per hole, highest total
    team: two sides; on each hole the best N scores of each side are added, lower side wins the hole */
-const GAMES=[['stroke','สโตรก'],['stableford','สเตเบิลฟอร์ด'],['s36','ระบบ 36'],['team','ทีม']];
-const GTITLE={stableford:'สเตเบิลฟอร์ด',s36:'ระบบ 36'};
+const GAMES=[['stroke','สโตรก'],['stableford','สเตเบิลฟอร์ด'],['s36','ระบบ 36'],['team','ทีม'],['h2h','แต้มต่อ']];
+const GTITLE={stableford:'สเตเบิลฟอร์ด',s36:'ระบบ 36',h2h:'แต้มต่อ'};
+const H2H_HELP='ทุกคนแข่งแบบตัวต่อตัวกับทุกคนในก๊วน หลุมไหนมีต่อ คนที่ได้ต่อหักสกอร์ 1 ช็อต ชนะหลุมได้ 1 UP ชนะด้วยเบอร์ดี้ (สกอร์จริง) ได้ 2 UP เสมอไม่มีแต้ม รวม UP จากทุกคู่';
+const fmtUp=v=>v>0?`+${v} UP`:v<0?`${-v} DN`:'AS';
+// strokes between two players live on the giver's score doc: scores/<giver>.give.<receiver> = [hole numbers]
+function hcPairs(){const out={};
+  (G.players||[]).forEach(p=>{const gv=(GS[p.id]&&GS[p.id].give)||{};Object.entries(gv).forEach(([r,h])=>{if(!Array.isArray(h)||!h.length||!G.players.find(x=>x.id===r)||r===p.id)return;
+    out[[p.id,r].sort().join('|')]={g:p.id,r,holes:h.slice().sort((a,b)=>a-b)};});});
+  return out}
+function h2hCalc(idx){const P=G.players,hc=hcPairs(),tot={},pairs=[],holes=idx||G.pars.map((_,i)=>i);P.forEach(p=>tot[p.id]=0);
+  for(let x=0;x<P.length;x++)for(let y=x+1;y<P.length;y++){const a=P[x].id,b=P[y].id,h=hc[[a,b].sort().join('|')];let up=0,won={[a]:0,[b]:0};const det={};
+    holes.forEach(i=>{const va=hStat(a,i).val,vb=hStat(b,i).val;if(va==null||vb==null)return;const num=gNum(i),par=G.pars[i],st=h&&h.holes.includes(num)?h.r:null;
+      const na=va-(st===a?1:0),nb=vb-(st===b?1:0);let w='T',q=0;if(na<nb){w=a;q=va<par?2:1}else if(nb<na){w=b;q=vb<par?2:1}
+      if(w===a){up+=q;won[a]++}else if(w===b){up-=q;won[b]++}det[i]={w,q,st};});
+    tot[a]+=up;tot[b]-=up;pairs.push({a,b,up,h,det,won});}
+  return{tot,pairs,hc}}
 const S36_HELP='หลุมละ: พาร์หรือดีกว่า 2 แต้ม · โบกี้ 1 · ดับเบิลขึ้นไป 0 → แฮนดิแคป = 36 − แต้มรวม (9 หลุม = 18 − แต้ม) → Net = สกอร์รวม − แฮนดิแคป · Net น้อยสุดชนะ ถ้า Net เท่ากัน คนแฮนดิแคปน้อยกว่า (สกอร์จริงดีกว่า) ชนะ';
 const s36Pts=(v,par)=>v==null?null:v<=par?2:v===par+1?1:0;
 // main/sub text for a result row on the share cards
 function resText(r,game){
+  if(game==='h2h')return{main:fmtUp(r.h2h),sub:`สกอร์ ${r.g}`,col:r.h2h>0?CARD.birdie:r.h2h<0?CARD.bogey:CARD.ink};
   if(game==='stableford')return{main:`${r.pts} แต้ม`,sub:`สกอร์ ${r.g}`,col:CARD.green};
   if(game==='s36')return{main:`Net ${r.s36net}`,sub:`สกอร์ ${r.g} · HCP ${r.s36hcp}`,col:r.s36np<0?CARD.birdie:r.s36np>0?CARD.bogey:CARD.ink};
   return{main:`${r.g} (${toPar(r.toPar)})`,sub:'',col:r.toPar<0?CARD.birdie:r.toPar>0?CARD.bogey:CARD.ink};}
 const GAME_DESC={stroke:'สกอร์รวมน้อยสุดชนะ (แบบเดิม)',s36:'คิดแฮนดิแคปจากรอบนี้เลย เหมาะกับก๊วนที่ไม่มีแฮนดิแคป ใครตีอ่อนก็มีลุ้นชนะ',stableford:'นับแต้มทีละหลุม แต้มรวมมากสุดชนะ หลุมไหนพังเสียแค่หลุมนั้น',
+  h2h:'ตัวต่อตัวทุกคู่ในก๊วน ตั้งแต้มต่อได้ว่าใครต่อใคร หลุมไหน (ต่อหลุมละ 1 ช็อต) ชนะหลุมได้ 1 UP เบอร์ดี้ 2 UP · ตั้งแต้มต่อในแท็บ "อันดับ" หลังสร้างก๊วน',
   team:'แบ่ง 2 ทีม แต่ละหลุมจับคู่เทียบสกอร์ คนดีสุดกับคนดีสุด ไล่ลงไป ชนะคู่ละ 1 แต้ม ชนะด้วยเบอร์ดี้ 2 แต้ม สะสมเป็น UP'};
 const SF_HELP='อัลบาทรอส 5 · อีเกิล 4 · เบอร์ดี้ 3 · พาร์ 2 · โบกี้ 1 · ดับเบิลขึ้นไป 0';
 const TEAMS={A:{n:'ทีมแดง',s:'แดง',c:'#d33a2c',e:'🔴'},B:{n:'ทีมน้ำเงิน',s:'น้ำเงิน',c:'#2563c9',e:'🔵'}};
@@ -1848,8 +1873,8 @@ function teamStatus(t){
 }
 // leaderboard order for the current game
 function gSort(rows){const g=gGame();
-  return rows.sort((a,b)=>(a.thru?0:1)-(b.thru?0:1)||(g==='stableford'?b.pts-a.pts:g==='s36'?a.s36np-b.s36np:0)||a.toPar-b.toPar||b.thru-a.thru);}
-const gSameRank=(a,b)=>{const g=gGame();return g==='stableford'?a.pts===b.pts:g==='s36'?a.s36np===b.s36np&&a.g===b.g:a.toPar===b.toPar};
+  return rows.sort((a,b)=>(a.thru?0:1)-(b.thru?0:1)||(g==='stableford'?b.pts-a.pts:g==='s36'?a.s36np-b.s36np:g==='h2h'?b.h2h-a.h2h:0)||a.toPar-b.toPar||b.thru-a.thru);}
+const gSameRank=(a,b)=>{const g=gGame();return g==='h2h'?a.h2h===b.h2h:g==='stableford'?a.pts===b.pts:g==='s36'?a.s36np===b.s36np&&a.g===b.g:a.toPar===b.toPar};
 function groupsView(){
   let h=`<div class="top"><button class="btn" data-act="home">‹ หน้าหลัก</button></div><div><div class="label">เล่นกับเพื่อน · อัปเดตสด</div><h1>ก๊วน</h1></div>`;
   if(!gdb)return h+`<div class="notice">${fbErr?'เชื่อมต่อระบบก๊วนไม่ได้ ตรวจอินเทอร์เน็ตแล้วเปิดหน้านี้ใหม่':'กำลังเชื่อมต่อระบบก๊วน…'}</div>`;
@@ -1864,7 +1889,7 @@ function groupsView(){
   if(arc.length)h+=`<details class="panel"><summary class="label">คลัง (${arc.length})</summary><div class="list">${arc.map(row).join('')}</div></details>`;
   return h;
 }
-function gameSeg(act,cur){return `<div class="seg">${GAMES.map(([k,l])=>`<button data-act="${act}" data-v="${k}" aria-pressed="${cur===k}">${l}</button>`).join('')}</div>`}
+function gameSeg(act,cur){return `<div class="seg gm">${GAMES.map(([k,l])=>`<button data-act="${act}" data-v="${k}" aria-pressed="${cur===k}">${l}</button>`).join('')}</div>`}
 function teamNSeg(act,cur){return `<div class="field"><span class="label">ต่อหลุม เทียบกันกี่คู่ (คนที่ 1 กับ 1, 2 กับ 2 …)</span><div class="seg">${[1,2,3].map(n=>`<button data-act="${act}" data-v="${n}" aria-pressed="${cur===n}">${n} คู่</button>`).join('')}</div><div class="muted" style="font-size:.8rem">ถ้าทีมไหนมีคนน้อยกว่าที่เลือก จะเทียบเท่าจำนวนคนของทีมที่เล็กกว่า</div></div>`}
 function gNewFix(){gNew.game=gNew.game||'stroke';gNew.teamN=gNew.teamN||2;gNew.players.forEach((p,i)=>{if(!p.team)p.team=i%2?'B':'A';});}
 function gNewView(){gNewFix();
@@ -1876,7 +1901,7 @@ function gNewView(){gNewFix();
     <div class="field"><span class="label">จำนวนหลุม</span><div class="seg">
       <button data-act="gholes" data-n="18" aria-pressed="${gNew.holes===18}">18 หลุม</button><button data-act="gholes" data-n="9" aria-pressed="${gNew.holes===9&&!gNew.start}">9 หน้า</button><button data-act="gholes" data-n="9b" aria-pressed="${gNew.holes===9&&gNew.start===9}">9 หลัง</button></div></div>
   </div>
-  <div class="panel"><div class="field"><span class="label">รูปแบบการแข่ง</span>${gameSeg('ggame',gNew.game)}<div class="muted" style="font-size:.82rem">${GAME_DESC[gNew.game]}${gNew.game==='stableford'?'<br>'+SF_HELP:gNew.game==='s36'?'<br>'+S36_HELP:gNew.game==='team'?'<br>'+TEAM_HELP:''}</div></div>
+  <div class="panel"><div class="field"><span class="label">รูปแบบการแข่ง</span>${gameSeg('ggame',gNew.game)}<div class="muted" style="font-size:.82rem">${GAME_DESC[gNew.game]}${gNew.game==='stableford'?'<br>'+SF_HELP:gNew.game==='s36'?'<br>'+S36_HELP:gNew.game==='team'?'<br>'+TEAM_HELP:gNew.game==='h2h'?'<br>'+H2H_HELP:''}</div></div>
     ${gNew.game==='team'?teamNSeg('gteamn',gNew.teamN):''}</div>
   <div class="panel"><div class="top"><h2>ผู้เล่น (2–10 คน)</h2><span class="muted" style="font-size:.8rem">แฮนดิแคปไม่ใส่ก็ได้</span></div>
     ${gNew.game==='team'?`<div class="muted" style="font-size:.82rem">แตะปุ่มสีเพื่อสลับทีม · ${['A','B'].map(k=>`${TEAMS[k].n} ${gNew.players.filter(p=>p.team===k&&p.name).length} คน`).join(' · ')}</div>`:''}
@@ -1967,13 +1992,18 @@ function teamHoleLine(i){const t=teamCalc();if(!t.ok)return '';const h=t.holes[i
   const res=h.w?(h.w==='T'?'เสมอ':`${TEAMS[h.w].s}ได้ ${h.m} UP`):'รอกรอกครบทุกคน';
   const pr=h.pairs.length?`<div class="muted" style="font-size:.78rem">${h.pairs.map((x,j)=>`คู่ ${j+1}: <span class="tdot A"></span>${x.a} vs ${x.b}<span class="tdot B" style="margin-left:4px"></span> ${x.w==='T'?'เสมอ':`→ ${TEAMS[x.w].s} +${x.q}${x.q===2?' 🐦':''}`}`).join(' · ')}</div>`:'';
   return `<div class="thole"><span><span class="tdot A"></span><b>${f('A')}</b> – <b>${f('B')}</b><span class="tdot B" style="margin-left:5px"></span></span><span class="muted">${t.n} คู่ · ${res}</span></div>${pr}`}
+function h2hHoleLine(i){const H=h2hCalc(),num=gNum(i);
+  const st=Object.values(H.hc).filter(x=>x.holes.includes(num));
+  const ps=H.pairs.filter(x=>x.det[i]&&(!gMe||gMe==='watch'||x.a===gMe||x.b===gMe));
+  return `<div class="thole" style="flex-direction:column;align-items:stretch;gap:2px"><span>${st.length?st.map(x=>`🎁 ${esc(pName(x.r))} ได้ต่อ 1 จาก ${esc(pName(x.g))}`).join(' · '):'<span class="muted">หลุมนี้ไม่มีต่อ</span>'}</span>
+    ${ps.map(x=>{const d=x.det[i];return `<span class="muted" style="font-size:.8rem">${esc(pName(x.a))} vs ${esc(pName(x.b))}: ${d.w==='T'?'เสมอ':`${esc(pName(d.w))} +${d.q}${d.q===2?' 🐦':''}`}</span>`}).join('')}</div>`}
 function gHoleView(){
   const i=gHole,par=gPar(i),can=!gRO&&gMe&&gMe!=='watch';
   let h=`<div class="holebar">${G.pars.map((p,k)=>{const done=G.players.every(pl=>hStat(pl.id,k).val!=null),bad=G.players.some(pl=>hStat(pl.id,k).st==='conflict');
     return `<button class="${k===i?'cur':''} ${done?'done':''} ${bad?'bad':''}" data-act="ghole" data-i="${k}">${gNum(k)}</button>`}).join('')}</div>`;
   h+=`<div class="panel"><div class="holehead"><div><div class="big">หลุม ${gNum(i)}</div></div><div class="label">Par ${par}</div></div>
     ${can?`<div class="muted" style="font-size:.82rem">กรอกให้ตัวเองและเพื่อนได้ · แตะตัวเลขตรงกลาง = บันทึกค่าที่แสดง (พาร์ถ้ายังไม่มีคนกรอก)</div>`:''}
-    ${gGame()==='team'?teamHoleLine(i):''}
+    ${gGame()==='team'?teamHoleLine(i):gGame()==='h2h'?h2hHoleLine(i):''}
     ${gHolePlayers().map(p=>{const s=hStat(p.id,i);const mine=(gEntries(p.id,i).find(x=>x[0]===gMe)||[])[1];
       const simple=!gVerify(),shown=simple?(s.val!=null?s.val:par):(mine!=null?mine:(s.val!=null?s.val:par)),dim=simple?s.val==null:mine==null;
       return `<div class="gp ${s.st}"><div class="gpn"><span class="t">${gGame()==='team'?`<span class="tdot ${teamOf(p.id)||'A'}"></span>`:''}${esc(p.name)}${p.id===gMe?' <span class="muted">(คุณ)</span>':''}</span>${stChip(s,p.id)}</div>
@@ -1991,17 +2021,42 @@ function teamPanel(){const t=teamCalc();
     <div class="tstat">${teamStatus(t)}</div>
     <div class="tstrip">${t.holes.map((h,i)=>`<span class="${h.w||''}" title="หลุม ${gNum(i)}"><b>${gNum(i)}</b>${h.w&&h.w!=='T'?`<i>+${h.m}</i>`:''}</span>`).join('')}</div>
     <div class="muted" style="font-size:.78rem">${TEAM_HELP}</div></div>`}
+let hcEd=null;
+function h2hPanels(){const H=h2hCalc(),N=G.pars.length,can=!gRO&&gMe&&gMe!=='watch';
+  const mine=x=>gMe&&(x.a===gMe||x.b===gMe);
+  const pairs=H.pairs.slice().sort((x,y)=>(mine(y)?1:0)-(mine(x)?1:0));
+  let h=`<div class="panel"><div class="top"><h2>แมตช์รายคู่</h2><span class="muted" style="font-size:.8rem">${pairs.length} คู่</span></div>
+    ${pairs.map(x=>{const lead=x.up>0?x.a:x.up<0?x.b:null,hc=x.h?`<div class="muted" style="font-size:.76rem">${esc(pName(x.h.g))} ต่อ ${esc(pName(x.h.r))} ${x.h.holes.length} หลุม: ${x.h.holes.join(', ')}</div>`:'';
+      return `<div class="pr"><div style="min-width:0"><b>${esc(pName(x.a))}</b> vs <b>${esc(pName(x.b))}</b>${hc}</div><span class="num" style="color:var(${lead?'--accent':'--muted'})">${lead?`${esc(pName(lead))} ${Math.abs(x.up)} UP`:'AS'}</span></div>`}).join('')}
+    <div class="muted" style="font-size:.78rem">${H2H_HELP}</div></div>`;
+  // the stroke list, shared by everyone in the group
+  const L=Object.entries(H.hc);
+  h+=`<div class="panel"><h2>แต้มต่อ</h2>${L.length?L.map(([k,x])=>`<div class="pr"><div style="min-width:0"><b>${esc(pName(x.g))}</b> ต่อ 1 ช็อต ให้ <b>${esc(pName(x.r))}</b><div class="muted" style="font-size:.76rem">${x.holes.length} หลุม: ${x.holes.join(', ')}</div></div>${can?`<button class="btn sm" data-act="hcedit" data-g="${x.g}" data-r="${x.r}">แก้</button>`:''}</div>`).join(''):'<div class="muted" style="font-size:.85rem">ยังไม่มีการต่อแต้ม ทุกคู่เล่นเสมอกัน</div>'}`;
+  if(can){
+    if(!hcEd)h+=`<button class="btn full" data-act="hcnew">+ ตั้งแต้มต่อ</button>`;
+    else{const e=hcEd,opp=e.g&&e.r?H.hc[[e.g,e.r].sort().join('|')]:null,flip=opp&&opp.g!==e.g;
+      const nums=G.pars.map((_,i)=>gNum(i));
+      h+=`<div class="confirm" style="align-items:stretch"><strong>ตั้งแต้มต่อ</strong>
+        <span class="label">ใครเป็นคนต่อ (ให้ 1 ช็อต)</span><div class="pick">${G.players.map(p=>`<button class="btn sm" data-act="hcg" data-p="${p.id}" aria-pressed="${e.g===p.id}">${esc(p.name)}</button>`).join('')}</div>
+        <span class="label">ต่อให้ใคร</span><div class="pick">${G.players.filter(p=>p.id!==e.g).map(p=>`<button class="btn sm" data-act="hcr" data-p="${p.id}" aria-pressed="${e.r===p.id}">${esc(p.name)}</button>`).join('')}</div>
+        ${flip?`<div class="notice">ตอนนี้ ${esc(pName(opp.g))} ต่อ ${esc(pName(opp.r))} อยู่ ถ้าบันทึกจะเปลี่ยนเป็น ${esc(pName(e.g))} ต่อ ${esc(pName(e.r))} แทน</div>`:''}
+        <span class="label">หลุมที่ต่อ (เลือกแล้ว ${e.holes.length} หลุม)</span><div class="hcgrid">${nums.map(n=>`<button data-act="hch" data-n="${n}" aria-pressed="${e.holes.includes(n)}">${n}</button>`).join('')}</div>
+        <div class="row"><button class="btn" data-act="hccancel">ยกเลิก</button>${e.g&&e.r&&H.hc[[e.g,e.r].sort().join('|')]?`<button class="btn danger" data-act="hcdel">ลบแต้มต่อคู่นี้</button>`:''}<button class="btn primary" data-act="hcsave" ${e.g&&e.r&&e.holes.length?'':'disabled'}>บันทึก</button></div></div>`;}
+  }
+  return h+`</div>`}
+function hcLoad(){const e=hcEd;if(!e.g||!e.r){e.holes=[];return}const x=hcPairs()[[e.g,e.r].sort().join('|')];e.holes=x&&x.g===e.g?x.holes.slice():[];}
 function gBoardView(){
-  const rows=gSort(gRows()),game=gGame(),sf=game==='stableford',s36=game==='s36';
+  const rows=gSort(gRows()),game=gGame(),sf=game==='stableford',s36=game==='s36',hh=game==='h2h';
   let rank=0,prev=null;
   const anyH=!sf&&!s36&&G.players.some(p=>+p.hcp);
   let h=game==='team'?teamPanel():'';
   h+=`<div class="panel"><div class="top"><h2>${game==='team'?'อันดับรายคน':'อันดับ'}</h2><span class="muted" style="font-size:.8rem">${sf?'สเตเบิลฟอร์ด · ':''}อัปเดตสด</span></div><div class="board">
-    <div class="br head"><span>#</span><span>ผู้เล่น</span><span>หลุม</span><span>รวม</span><span>${sf?'แต้ม':s36?'HCP':'±พาร์'}</span>${anyH||s36?'<span>Net</span>':''}</div>`;
+    <div class="br head"><span>#</span><span>ผู้เล่น</span><span>หลุม</span><span>รวม</span><span>${sf?'แต้ม':s36?'HCP':hh?'UP':'±พาร์'}</span>${anyH||s36?'<span>Net</span>':''}</div>`;
   rows.forEach((r,k)=>{if(prev===null||!gSameRank(r,prev)||!r.thru)rank=k+1;prev=r;
     h+=`<div class="br ${r.p.id===gMe?'me':''}"><span class="num">${r.thru?rank:'–'}</span><span class="t">${game==='team'?`<span class="tdot ${teamOf(r.p.id)||'A'}"></span>`:''}${esc(r.p.name)}${r.conf?` <span class="chip bad sm">ไม่ตรง ${r.conf}</span>`:''}${r.sig.includes(r.p.id)?' <span class="chip ok sm">ยืนยันแล้ว</span>':''}</span>
-      <span class="num">${r.thru}</span><span class="num b">${r.thru?r.g:'–'}</span>${s36?`<span class="num">${r.thru?r.s36hcp:'–'}</span><span class="num b ${r.thru?scCls(Math.sign(r.s36np)*Math.min(Math.abs(r.s36np),2)):''}">${r.thru?r.s36net:'–'}</span>`:sf?`<span class="num b" style="color:var(--accent)">${r.thru?r.pts:'–'}</span>`:`<span class="num b ${r.thru?scCls(Math.sign(r.toPar)*Math.min(Math.abs(r.toPar),2)):''}">${r.thru?toPar(r.toPar):'–'}</span>`}${anyH?`<span class="num">${r.thru&&r.hcp?r.net:'–'}</span>`:''}</div>`;});
+      <span class="num">${r.thru}</span><span class="num b">${r.thru?r.g:'–'}</span>${hh?`<span class="num b" style="color:var(${r.h2h>0?'--birdie':r.h2h<0?'--bogey':'--ink'})">${r.thru?(r.h2h>0?'+':'')+r.h2h:'–'}</span>`:s36?`<span class="num">${r.thru?r.s36hcp:'–'}</span><span class="num b ${r.thru?scCls(Math.sign(r.s36np)*Math.min(Math.abs(r.s36np),2)):''}">${r.thru?r.s36net:'–'}</span>`:sf?`<span class="num b" style="color:var(--accent)">${r.thru?r.pts:'–'}</span>`:`<span class="num b ${r.thru?scCls(Math.sign(r.toPar)*Math.min(Math.abs(r.toPar),2)):''}">${r.thru?toPar(r.toPar):'–'}</span>`}${anyH?`<span class="num">${r.thru&&r.hcp?r.net:'–'}</span>`:''}</div>`;});
   h+=`</div>${s36?`<div class="muted" style="font-size:.78rem">${S36_HELP}<br>ระหว่างเล่น คิดจากหลุมที่เล่นแล้ว (2 แต้มต่อหลุม − แต้มที่ได้)</div>`:''}${sf?`<div class="muted" style="font-size:.78rem">แต้มต่อหลุม: ${SF_HELP} (คิดจากสกอร์จริง ยังไม่หักแฮนดิแคป)</div>`:''}${anyH?'<div class="muted" style="font-size:.78rem">Net = สกอร์รวม − แฮนดิแคปตามสัดส่วนหลุมที่เล่น (ต้นแบบนี้ยังไม่ใช้ Stroke Index ของแต่ละหลุม)</div>':''}</div>`;
+  if(hh)h+=h2hPanels();
   if(rows.some(r=>r.thru))h+=`<button class="btn full" data-act="gresultcard">การ์ดผลก๊วน (แชร์ลง LINE / โซเชียล)</button>`;
   if(G.owner===gdb.uid()&&!G.ended&&!gAllDone()&&gThru()>0)h+=`<button class="btn full" data-act="gend">จบรอบ</button>`;
   if(gMe&&gMe!=='watch'){
@@ -2087,6 +2142,15 @@ function gClick(a,b){
   if(a==='gsetteamn'&&G.owner===gdb.uid()){const n=+b.dataset.v;gdb.doc('groups/'+G.code).set({teamN:n},true).then(()=>{G.teamN=n;render();});return true}
   if(a==='gsetteam'&&G.owner===gdb.uid()){const pid=b.dataset.p,t=teamOf(pid)==='A'?'B':'A';
     gdb.doc('groups/'+G.code).set({teams:{[pid]:t}},true).then(()=>{G.teams=Object.assign({},G.teams,{[pid]:t});render();});return true}
+  if(a==='hcnew'){hcEd={g:gMe,r:null,holes:[]};render();return true}
+  if(a==='hcedit'){hcEd={g:b.dataset.g,r:b.dataset.r,holes:[]};hcLoad();render();return true}
+  if(a==='hccancel'){hcEd=null;render();return true}
+  if(a==='hcg'&&hcEd){hcEd.g=b.dataset.p;if(hcEd.r===hcEd.g)hcEd.r=null;hcLoad();render();return true}
+  if(a==='hcr'&&hcEd){hcEd.r=b.dataset.p;hcLoad();render();return true}
+  if(a==='hch'&&hcEd){const n=+b.dataset.n,i=hcEd.holes.indexOf(n);if(i>=0)hcEd.holes.splice(i,1);else hcEd.holes.push(n);hcEd.holes.sort((x,y)=>x-y);render();return true}
+  if((a==='hcsave'||a==='hcdel')&&hcEd&&hcEd.g&&hcEd.r&&!gRO){const {g,r}=hcEd,hs=a==='hcsave'?hcEd.holes.slice():null;
+    gPatch(g,{give:{[r]:hs&&hs.length?hs:null}});gPatch(r,{give:{[g]:null}});
+    toast(hs?`${pName(g)} ต่อ ${pName(r)} ${hs.length} หลุมแล้ว`:'ลบแต้มต่อแล้ว');hcEd=null;render();return true}
   if(a==='gdelask'){gDelAsk=true;render();return true}
   if(a==='gdelno'){gDelAsk=false;render();return true}
   if(a==='gdelyes'&&G.owner===gdb.uid()){const v=((document.getElementById('gdelcode')||{}).value||'').trim().toUpperCase();
