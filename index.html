@@ -583,6 +583,7 @@ function render(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
+const APPV='2026.10.13-e';
 function homeView(){
   const list=sorted();const done=list.filter(r=>r.complete);const open=list.find(r=>!r.complete);
   let h=header();
@@ -593,13 +594,15 @@ function homeView(){
     <span class="badge ${relCls(t.strokes-t.par)}">${t.n?toPar(t.strokes-t.par):'–'}</span></div>
     <button class="btn primary full" data-act="resume" data-id="${open.id}">เล่นต่อ</button></div>`;}
   h+=`<button class="btn ${open?'':'primary'} full" data-act="new">เริ่มรอบใหม่</button>`;
+  const lastR=sorted().find(r=>totals(r).n>0);
+  h+=`<button class="btn full gbtn" data-act="${lastR?'homecard':'homecardhelp'}"><span>📸 การ์ดโชว์สกอร์</span><span class="muted" style="font-weight:500;font-size:.82rem">${lastR?`จากรอบล่าสุด · ${esc(lastR.course)} ${fmtDate(lastR.date)}`:'จดรอบให้เสร็จก่อน แล้วสร้างการ์ดแชร์ลงโซเชียล'}</span></button>`;
   loadLobby();h+=lobbyHTML();
   h+=`<button class="btn full gbtn" data-act="events"><span>นัดออกรอบ</span><span class="muted" style="font-weight:500;font-size:.82rem">ส่งลิงก์ให้เพื่อนลงชื่อ · ปิดรับคืนก่อนวันเล่น 21:00</span></button>`;
   h+=`<button class="btn full gbtn" data-act="groups"><span>ก๊วน · แข่งกับเพื่อน</span><span class="muted" style="font-weight:500;font-size:.82rem">กรอกสกอร์ร่วมกัน ตรวจทาน และดูอันดับสด</span></button>`;
   if(!list.length){
     h+=`<div class="panel empty"><svg viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="58" r="10" fill="var(--soft)"/><line x1="36" y1="58" x2="36" y2="10" stroke="var(--ink)" stroke-width="2.5"/><path d="M36 10 L58 18 L36 26 Z" fill="var(--under)"/></svg>
     <h2>ยังไม่มีรอบที่บันทึก</h2><p class="muted" style="margin:0">กด "เริ่มรอบใหม่" ใส่ชื่อสนามกับ Par แล้วจดสกอร์ พัตต์ แฟร์เวย์ และมาร์คจุดที่ลูกไปหยุดบนผังหลุมทีละช็อต สถิติเฉลี่ยและกราฟพัฒนาการจะขึ้นที่หน้านี้</p></div>`;
-    return h;
+    return h+`<div class="muted" style="font-size:.7rem;text-align:center">ParLive เวอร์ชัน ${APPV}</div>`;
   }
   if(done.length){
     const st=roundStats(done);
@@ -617,7 +620,7 @@ function homeView(){
     <div style="min-width:0"><div class="t">${esc(r.course)}</div><div class="muted" style="font-size:.85rem">${fmtDate(r.date)} · ${r.holes} หลุม${r.complete?'':' · ยังไม่จบ'}</div></div>
     <span class="num" style="font-size:1.15rem;font-weight:600">${t.n?t.strokes:'–'}</span>
     <span class="badge ${relCls(t.strokes-t.par)}">${t.n?toPar(t.strokes-t.par):'–'}</span></button>`}).join('')}</div></div>`;
-  return h;
+  return h+`<div class="muted" style="font-size:.7rem;text-align:center">ParLive เวอร์ชัน ${APPV}</div>`;
 }
 function avgPerHole(list){let s=0,p=0,n=0;list.forEach(r=>{const t=totals(r);s+=t.strokes;p+=t.par;n+=t.n;});if(!n)return'–';const v=(s-p)/n;return (v>0?'+':'')+v.toFixed(2);}
 const full18=list=>list.filter(r=>r.holes===18&&r.scores.every(x=>x.s!=null)).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.createdAt||0)-(b.createdAt||0));
@@ -1700,6 +1703,8 @@ app.addEventListener('click',e=>{
   if(a==='new')return newRound();
   if(shareClick(a,b))return;
   if(a==='sharecard'&&cur){openShare(srcFromRound(cur));return}
+  if(a==='homecard'){const r=sorted().find(r=>totals(r).n>0);if(r){cur=JSON.parse(JSON.stringify(r));openShare(srcFromRound(cur));}return}
+  if(a==='homecardhelp'){toast('ยังไม่มีรอบในเครื่องนี้ กด "เริ่มรอบใหม่" หรือสร้างการ์ดจากแท็บอันดับในก๊วน');return}
   if(a==='gsharecard'&&G&&gMe){openShare(srcFromGroup(gMe));return}
   if(a==='gresultcard'&&G){openShare(srcGroupResult());return}
   if(eClick(a,b))return;
