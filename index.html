@@ -791,7 +791,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.14-e';
+const APPV='2026.10.14-f';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1812,7 +1812,7 @@ function gRows(){const H2=gGame()==='h2h'&&G.players?h2hCalc():null;
    team: two sides; on each hole the best N scores of each side are added, lower side wins the hole */
 const GAMES=[['stroke','สโตรก'],['stableford','สเตเบิลฟอร์ด'],['s36','ระบบ 36'],['team','ทีม'],['h2h','แต้มต่อ']];
 const GTITLE={stableford:'สเตเบิลฟอร์ด',s36:'ระบบ 36',h2h:'แต้มต่อ'};
-const H2H_HELP='ทุกคนแข่งแบบตัวต่อตัวกับทุกคนในก๊วน หลุมที่มีต่อ คนได้ต่อแพ้ 1 ช็อตถือว่าเสมอ (สกอร์เท่ากันก็เสมอ ไม่นับเป็นชนะ) ต้องดีกว่าจริงถึงจะชนะ ชนะหลุมได้ 1 UP ชนะด้วยเบอร์ดี้ (สกอร์จริง) ได้ 2 UP รวม UP จากทุกคู่';
+const H2H_HELP='ทุกคนแข่งแบบตัวต่อตัวกับทุกคนในก๊วน หลุมที่มีต่อ สกอร์จริงเท่ากันคนได้ต่อชนะ แพ้ 1 ช็อตถือว่าเสมอ แพ้ 2 ช็อตขึ้นไปคนต่อชนะ ชนะหลุมได้ 1 UP ชนะด้วยเบอร์ดี้ (สกอร์จริง) ได้ 2 UP รวม UP จากทุกคู่';
 const fmtUp=v=>v>0?`+${v} UP`:v<0?`${-v} DN`:'AS';
 // strokes between two players live on the giver's score doc: scores/<giver>.give.<receiver> = [hole numbers]
 function hcPairs(){const out={};
@@ -1822,9 +1822,9 @@ function hcPairs(){const out={};
 function h2hCalc(idx){const P=G.players,hc=hcPairs(),tot={},pairs=[],holes=idx||G.pars.map((_,i)=>i);P.forEach(p=>tot[p.id]=0);
   for(let x=0;x<P.length;x++)for(let y=x+1;y<P.length;y++){const a=P[x].id,b=P[y].id,h=hc[[a,b].sort().join('|')];let up=0,won={[a]:0,[b]:0};const det={};
     holes.forEach(i=>{const va=hStat(a,i).val,vb=hStat(b,i).val;if(va==null||vb==null)return;const num=gNum(i),par=G.pars[i],st=h&&h.holes.includes(num)?h.r:null;
-      // on a stroke hole the receiver may lose by one shot and still halve, but a level score stays a half (the stroke never turns a tie into a win)
+      // stroke hole: level gross scores go to the receiver, one shot worse is a half, two or more worse the giver wins
       let w='T',q=0;
-      if(st){const r=st,g=r===a?b:a,vr=r===a?va:vb,vg=r===a?vb:va,d=vr-vg;if(d<0){w=r;q=vr<par?2:1}else if(d>=2){w=g;q=vg<par?2:1}}
+      if(st){const r=st,g=r===a?b:a,vr=r===a?va:vb,vg=r===a?vb:va,d=vr-vg;if(d<=0){w=r;q=vr<par?2:1}else if(d>=2){w=g;q=vg<par?2:1}}
       else if(va<vb){w=a;q=va<par?2:1}else if(vb<va){w=b;q=vb<par?2:1}
       if(w===a){up+=q;won[a]++}else if(w===b){up-=q;won[b]++}det[i]={w,q,st};});
     tot[a]+=up;tot[b]-=up;pairs.push({a,b,up,h,det,won});}
