@@ -57,6 +57,17 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 .row>.btn{flex:1 1 0;min-width:0}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+details.panel>summary{list-style:none;cursor:pointer;display:flex;flex-direction:column;gap:8px}
+details.panel>summary::-webkit-details-marker{display:none}
+.brow{display:flex;gap:6px;font-size:1.6rem;flex-wrap:wrap}
+.bgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.bdg{display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px;padding:10px 4px;border-radius:12px;border:1px solid var(--line);background:var(--bg);min-width:0}
+.bdg .be{font-size:1.7rem;filter:grayscale(1);opacity:.35}
+.bdg .bn{font-weight:700;font-size:.8rem;line-height:1.2;color:var(--muted)}
+.bdg .bh{font-size:.68rem;color:var(--muted);line-height:1.25}
+.bdg.on{background:var(--surface);border-color:var(--accent)}
+.bdg.on .be{filter:none;opacity:1}.bdg.on .bn{color:var(--ink)}
+.newb{border-color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
 .tile .v{font-family:var(--f-num);font-size:1.5rem;font-weight:600}
 .list{display:flex;flex-direction:column}
@@ -416,6 +427,57 @@ function roundStats(list){
     gir:pu.length?Math.round(100*pu.filter(gir).length/pu.length):null,
     putts:pu.length?(pu.reduce((a,h)=>a+h.p,0)/pu.length).toFixed(2):null};
 }
+/* ---------- เหรียญรางวัล ----------
+   worked out from the finished rounds on this phone, oldest first, so each badge remembers the round that earned it */
+function rdiffs(r){return r.scores.map((x,i)=>x.s==null?null:x.s-r.pars[i])}
+function runOf(a,ok){let best=0,c=0;a.forEach(d=>{if(d!=null&&ok(d)){c++;best=Math.max(best,c)}else c=0;});return best}
+const isFull18=r=>r.holes===18&&r.scores.every(x=>x.s!=null);
+const BADGES=[
+  {id:'first',e:'🏌️',n:'ออกรอบแรก',h:'จบรอบแรกในแอป',cum:n=>n>=1},
+  {id:'r10',e:'🔟',n:'ขาประจำ',h:'จบ 10 รอบ',cum:n=>n>=10,goal:10},
+  {id:'r25',e:'🦁',n:'สิงห์สนาม',h:'จบ 25 รอบ',cum:n=>n>=25,goal:25},
+  {id:'r50',e:'🏛️',n:'ตำนานก๊วน',h:'จบ 50 รอบ',cum:n=>n>=50,goal:50},
+  {id:'bird',e:'🐦',n:'เบอร์ดี้แรก',h:'ทำเบอร์ดี้ได้ 1 หลุม',t:r=>rdiffs(r).some(d=>d!=null&&d<=-1)},
+  {id:'bird2',e:'🔥',n:'เบอร์ดี้ติด',h:'เบอร์ดี้ (หรือดีกว่า) 2 หลุมติดกัน',t:r=>runOf(rdiffs(r),d=>d<=-1)>=2},
+  {id:'bird3',e:'🎩',n:'แฮตทริกเบอร์ดี้',h:'เบอร์ดี้ 3 หลุมขึ้นไปในรอบเดียว',t:r=>rdiffs(r).filter(d=>d!=null&&d<=-1).length>=3},
+  {id:'eagle',e:'🦅',n:'อีเกิล',h:'ต่ำกว่าพาร์ 2 ไม้ในหลุมเดียว',t:r=>rdiffs(r).some(d=>d!=null&&d<=-2)},
+  {id:'hio',e:'🎯',n:'Hole in One',h:'ตีลงหลุมในช็อตเดียว',t:r=>r.scores.some(x=>x.s===1)},
+  {id:'par5',e:'🧱',n:'กำแพงพาร์',h:'พาร์หรือดีกว่า 5 หลุมติดกัน',t:r=>runOf(rdiffs(r),d=>d<=0)>=5},
+  {id:'par9',e:'💎',n:'ไร้ที่ติ 9 หลุม',h:'พาร์หรือดีกว่าทั้ง 9 หลุมหน้าหรือหลัง',t:r=>{const d=rdiffs(r);return [d.slice(0,9),d.slice(9,18)].some(a=>a.length===9&&a.every(x=>x!=null&&x<=0))}},
+  {id:'b100',e:'💯',n:'เบรก 100',h:'18 หลุม ต่ำกว่า 100',t:r=>isFull18(r)&&totals(r).strokes<100},
+  {id:'b90',e:'🥉',n:'เบรก 90',h:'18 หลุม ต่ำกว่า 90',t:r=>isFull18(r)&&totals(r).strokes<90},
+  {id:'b80',e:'🥈',n:'เบรก 80',h:'18 หลุม ต่ำกว่า 80',t:r=>isFull18(r)&&totals(r).strokes<80},
+  {id:'even',e:'👑',n:'อีเวนพาร์',h:'18 หลุม ไม่เกินพาร์',t:r=>isFull18(r)&&totals(r).strokes<=totals(r).par},
+  {id:'nodbl',e:'🛡️',n:'ไม่มีดับเบิล',h:'18 หลุม ไม่มีดับเบิลโบกี้เลย',t:r=>isFull18(r)&&rdiffs(r).every(d=>d<2)},
+  {id:'no3p',e:'🎱',n:'ไม่มี 3 พัตต์',h:'18 หลุม กรอกพัตต์ครบ และไม่มี 3 พัตต์',t:r=>isFull18(r)&&r.scores.every(x=>x.p!=null&&x.p<3)},
+  {id:'p30',e:'🪄',n:'มือพัตต์',h:'18 หลุม พัตต์รวมไม่เกิน 30',t:r=>isFull18(r)&&r.scores.every(x=>x.p!=null)&&totals(r).putts<=30},
+  {id:'fir',e:'🎳',n:'ทีช็อตแม่น',h:'ลงแฟร์เวย์ 70% ขึ้นไป (กรอกอย่างน้อย 7 หลุม)',t:r=>{const a=played(r).filter(h=>h.par>=4&&h.f);return a.length>=7&&a.filter(h=>h.f==='hit').length/a.length>=0.7}},
+  {id:'pb',e:'📈',n:'สถิติใหม่',h:'18 หลุม ดีกว่าสถิติเดิมของตัวเอง',pb:true},
+];
+// {id:{at:roundId,date}} plus how many times each was earned
+function badgeBook(){
+  const L=rounds.filter(r=>r.complete).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.createdAt||0)-(b.createdAt||0));
+  const got={},cnt={};let n=0,best=null;
+  const give=(b,r)=>{cnt[b.id]=(cnt[b.id]||0)+1;if(!got[b.id])got[b.id]={at:r.id,date:r.date};};
+  L.forEach(r=>{n++;
+    BADGES.forEach(b=>{if(b.cum?b.cum(n):b.pb?(isFull18(r)&&best!=null&&totals(r).strokes<best):b.t(r))give(b,r);});
+    if(isFull18(r)){const v=totals(r).strokes;best=best==null?v:Math.min(best,v);}});
+  return{got,cnt,n};
+}
+const badgesOf=(book,rid)=>BADGES.filter(b=>book.got[b.id]&&book.got[b.id].at===rid);
+function badgesHTML(){
+  const book=badgeBook(),have=BADGES.filter(b=>book.got[b.id]);
+  if(!book.n)return'';
+  const tile=b=>{const g=book.got[b.id],c=book.cnt[b.id];
+    return `<div class="bdg ${g?'on':''}"><span class="be">${b.e}</span><span class="bn">${b.n}${g&&c>1&&!b.cum?` <span class="muted">×${c}</span>`:''}</span><span class="bh">${g?fmtDate(g.date):b.goal?`${Math.min(book.n,b.goal)}/${b.goal} รอบ`:b.h}</span></div>`};
+  const recent=have.slice().sort((a,b)=>(book.got[b.id].date||'').localeCompare(book.got[a.id].date||''));
+  return `<details class="panel"><summary><div class="top"><h2>เหรียญรางวัล</h2><span class="muted" style="font-size:.85rem">${have.length}/${BADGES.length} ›</span></div>
+    <div class="brow">${recent.length?recent.slice(0,8).map(b=>`<span title="${esc(b.n)}">${b.e}</span>`).join(''):'<span class="muted" style="font-size:.85rem">จบรอบแรกเพื่อรับเหรียญแรก</span>'}</div></summary>
+    <div class="bgrid">${have.map(tile).join('')}${BADGES.filter(b=>!book.got[b.id]).map(tile).join('')}</div>
+    <div class="muted" style="font-size:.78rem">นับจากรอบที่จบแล้วในมือถือเครื่องนี้ · แตะหัวข้อเพื่อย่อ</div></details>`;
+}
+function roundBadgesHTML(r){if(!r.complete)return'';const nb=badgesOf(badgeBook(),r.id);if(!nb.length)return'';
+  return `<div class="panel newb"><h2>🏅 รอบนี้ได้เหรียญใหม่</h2><div class="bgrid">${nb.map(b=>`<div class="bdg on"><span class="be">${b.e}</span><span class="bn">${b.n}</span><span class="bh">${b.h}</span></div>`).join('')}</div></div>`}
 const fmtDate=d=>{try{return new Date(d+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'})}catch(e){return d}};
 const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -610,7 +672,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.13-m';
+const APPV='2026.10.14-a';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -665,6 +727,7 @@ function homeView(){
       <div class="tile"><span class="label">เฉลี่ยสกอร์รวม 18 หลุม</span>${avg18(done)}</div></div>`;
     h+=trendChart(done);
   }
+  h+=badgesHTML();
   h+=`<div class="panel"><h2>รอบทั้งหมด</h2><div class="list">${list.map(r=>{const t=totals(r);return `<button class="item" data-act="open" data-id="${r.id}">
     <div style="min-width:0"><div class="t">${esc(r.course)}</div><div class="muted" style="font-size:.85rem">${fmtDate(r.date)} · ${r.holes} หลุม${r.complete?'':' · ยังไม่จบ'}</div></div>
     <span class="num" style="font-size:1.15rem;font-weight:600">${t.n?t.strokes:'–'}</span>
@@ -766,6 +829,7 @@ function cardView(){
   const thumbs=mapped.length?`<div class="panel"><h2>เส้นทางลูกแต่ละหลุม</h2><div class="thumbs">${mapped.map(i=>`<button class="thumb" data-act="gohole" data-i="${i}" style="border:0;background:none;padding:0">${mapHTML(r,i,false)}<span class="lab ${r.scores[i].s!=null?scCls(r.scores[i].s-r.pars[i]):''}">หลุม ${i+1+st0} • ${r.scores[i].s!=null?diffName(r.scores[i].s-r.pars[i]):'–'}</span></button>`).join('')}</div></div>`:'';
   return `<div class="top"><button class="btn" data-act="home">‹ หน้าหลัก</button><button class="btn" data-act="edit">แก้ไขสกอร์</button></div>
   <div><div class="label">${fmtDate(r.date)} · ${r.holes} หลุม${r.complete?'':' · ยังไม่จบ'}</div><h1>${esc(r.course)}</h1></div>
+  ${roundBadgesHTML(r)}
   <div class="stats">
     <div class="tile"><span class="label">สกอร์</span><span class="v">${t.strokes||'–'}</span><span class="rel num ${relCls(t.strokes-t.par)}">${t.n?toPar(t.strokes-t.par):''}</span></div>
     <div class="tile"><span class="label">พัตต์รวม</span><span class="v">${t.putts||'–'}</span></div>
@@ -1100,18 +1164,41 @@ const chatRole=()=>(!gRO&&gMe&&gMe!=='watch')?'p':'v';
 const chatOwner=()=>G&&gdb&&G.owner===gdb.uid();
 function chatClosedForDay(){if(!G||!G.date)return false;return Date.now()>new Date(G.date+'T23:59:59+07:00').getTime()+86400000}
 const chatLocked=()=>!!(G&&G.chatLocked)||chatClosedForDay();
-// verified birdies or better become feed items; first-seen time kept per device so the timeline stays stable
+// automatic highlights, worked out from the scores on every phone (nothing extra is stored online);
+// the first time this phone sees each one is kept so the timeline stays stable
+function hlLeader(idx,t){const game=gGame();
+  if(game==='team'){let up=0;idx.forEach(i=>{const h=t.holes[i];if(h.w)up+=h.A.sum-h.B.sum;});return up>0?{id:'A',up}:up<0?{id:'B',up:-up}:null;}
+  const sc=G.players.map(p=>{let g=0,par=0,pts=0,p36=0;idx.forEach(i=>{const v=hStat(p.id,i).val;g+=v;par+=G.pars[i];pts+=sfPts(v,G.pars[i]);p36+=s36Pts(v,G.pars[i]);});
+    const net=g-(2*idx.length-p36);return {p,k:game==='stableford'?-pts:game==='s36'?net-par:g-par,txt:game==='stableford'?`${pts} แต้ม`:game==='s36'?`Net ${net}`:toPar(g-par)}});
+  const m=Math.min(...sc.map(x=>x.k)),top=sc.filter(x=>x.k===m);return top.length===1?{id:top[0].p.id,txt:top[0].txt}:null;}
 function chatHighlights(){
-  if(!G||!G.pars)return[];const k='golf-hl-'+G.code;let seen={};try{seen=JSON.parse(lsGet(k,'{}'))}catch(e){}
+  if(!G||!G.pars||!G.players)return[];const k='golf-hl-'+G.code;let seen={};try{seen=JSON.parse(lsGet(k,'{}'))}catch(e){}
   const out=[];let changed=false;
-  G.players.forEach(p=>G.pars.forEach((par,i)=>{const s=hStat(p.id,i);if(s.st!=='ok'||s.val==null)return;const d=s.val-par;if(d>-1)return;
-    const id=p.id+'-'+gNum(i)+'-'+s.val;if(!seen[id]){seen[id]=Date.now();changed=true;}
-    out.push({sys:true,at:seen[id],text:`${d<=-2?'🦅':'🐦'} ${p.name} ${diffName(d)} หลุม ${gNum(i)}`});}));
-  if(changed)lsSet(k,JSON.stringify(seen));return out;
+  const add=(id,text,o)=>{if(!seen[id]){seen[id]=Date.now();changed=true;}out.push({sys:true,at:seen[id],text,o});};
+  const ok=s=>s.val!=null&&(s.st==='ok'||s.simple);
+  G.players.forEach(p=>{let run=0;G.pars.forEach((par,i)=>{const s=hStat(p.id,i);if(!ok(s)){run=0;return}const d=s.val-par;
+    if(s.val===1)add(`${p.id}-${gNum(i)}-hio`,`🎯 HOLE IN ONE!! ${p.name} หลุม ${gNum(i)}`,i*10);
+    else if(d<=-1)add(`${p.id}-${gNum(i)}-${s.val}`,`${d<=-2?'🦅':'🐦'} ${p.name} ${diffName(d)} หลุม ${gNum(i)}`,i*10);
+    run=d<=-1?run+1:0;if(run>=2)add(`${p.id}-${gNum(i)}-run${run}`,`🔥 ${p.name} ${run===2?'เบอร์ดี้ติดกัน 2 หลุม':`ร้อนแรง! เบอร์ดี้ ${run} หลุมติด`}`,i*10+1);});});
+  // lead changes, checked after each hole everyone has finished
+  const t=gGame()==='team'?teamCalc():null;if(t&&!t.ok)return finishHL();
+  const idx=[];let prev=null;
+  G.pars.forEach((par,i)=>{if(!G.players.every(p=>hStat(p.id,i).val!=null))return;idx.push(i);
+    const L=hlLeader(idx,t);if(!L||(prev&&prev===L.id))return;
+    if(t)add(`lead-${gNum(i)}-${L.id}`,`👑 หลังหลุม ${gNum(i)}: ${TEAMS[L.id].n}ขึ้นนำ ${L.up} UP`,i*10+5);
+    else add(`lead-${gNum(i)}-${L.id}`,`👑 หลังหลุม ${gNum(i)}: ${pName(L.id)} ขึ้นนำ (${L.txt})`,i*10+5);
+    prev=L.id;});
+  return finishHL();
+  function finishHL(){
+    if(G.ended||gAllDone()){
+      if(t&&t.ok)add('fin',`🏁 จบรอบ! ${teamStatus(t)}`,9999);
+      else if(!t){const r=gSort(gRows().filter(x=>x.thru))[0];if(r){const g=gGame();add('fin',`🏁 จบรอบ! 🏆 ${r.p.name} ชนะ ${g==='stableford'?r.pts+' แต้ม':g==='s36'?'Net '+r.s36net:`${r.g} (${toPar(r.toPar)})`}`,9999);}}}
+    if(changed)lsSet(k,JSON.stringify(seen));return out;}
 }
-function chatItems(){const m=GC.map(x=>Object.assign({},x));return m.concat(chatHighlights()).sort((a,b)=>a.at-b.at)}
-function chatUnread(){if(!G)return 0;const seen=+lsGet(chatSeenKey(),0),me=gdb&&gdb.uid();return GC.filter(m=>m.at>seen&&m.uid!==me).length}
-function chatMarkSeen(){if(G&&GC.length)lsSet(chatSeenKey(),String(Math.max(...GC.map(m=>m.at))))}
+function chatItems(){const m=GC.map(x=>Object.assign({},x));return m.concat(chatHighlights()).sort((a,b)=>a.at-b.at||(a.o||0)-(b.o||0))}
+// viewers also get the unread count for highlights; players only for messages
+function chatUnread(){if(!G)return 0;const seen=+lsGet(chatSeenKey(),0),me=gdb&&gdb.uid(),L=chatRole()==='v'?chatItems():GC;return L.filter(m=>m.at>seen&&m.uid!==me).length}
+function chatMarkSeen(){if(!G)return;const L=chatItems();if(L.length)lsSet(chatSeenKey(),String(Math.max(...L.map(m=>m.at))))}
 const hhmm=ms=>new Date(ms).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
 function gChatView(){
   chatMarkSeen();
@@ -1286,7 +1373,8 @@ function logo(c,x,y,s,light){
 }
 function cardSum(src){const n=src.vals.filter(v=>v!=null).length,g=src.vals.reduce((a,v)=>a+(v||0),0),par=src.pars.reduce((a,p,i)=>a+(src.vals[i]!=null?p:0),0);
   const bird=src.vals.filter((v,i)=>v!=null&&v-src.pars[i]<=-1).length;return{n,g,toP:g-par,bird}}
-function statLine(src){const s=cardSum(src),out=[];if(s.bird)out.push(`🐦 ${s.bird} เบอร์ดี้`);if(src.putts)out.push(`พัตต์ ${src.putts}`);
+function statLine(src){const s=cardSum(src),out=[];
+  if(src.round&&src.round.complete){const nb=badgesOf(badgeBook(),src.round.id).filter(b=>!b.cum);if(nb.length)out.push(`🏅 ${nb[nb.length-1].n}`);}if(s.bird)out.push(`🐦 ${s.bird} เบอร์ดี้`);if(src.putts)out.push(`พัตต์ ${src.putts}`);
   if(src.fir!=null)out.push(`แฟร์เวย์ ${src.fir}%`);if(src.gir!=null)out.push(`GIR ${src.gir}%`);return out.slice(0,3)}
 function scoreColumns(c,src,x,y,w,h,dark){
   const N=src.pars.length,cols=N>9?2:1,rows=Math.min(9,N),head=h*0.11,foot=h*0.17,rowH=(h-head-foot)/rows,cw=w/cols;
@@ -1984,7 +2072,7 @@ app.addEventListener('click',e=>{
     if(a==='card'){view='card';return render();}
     if(a==='finish'){if(s.s==null){s.s=par;queueSave(cur);}const miss=cur.scores.filter(x=>x.s==null).length;
       if(miss){toast(`ยังไม่ได้ใส่สกอร์ ${miss} หลุม`);return move(cur.scores.findIndex(x=>x.s==null));}
-      cur.complete=true;queueSave(cur);view='card';toast('จบรอบแล้ว');return render();}
+      cur.complete=true;queueSave(cur);view='card';const nb=badgesOf(badgeBook(),cur.id);toast(nb.length?`จบรอบแล้ว · ได้เหรียญใหม่ ${nb.map(b=>b.e).join('')}`:'จบรอบแล้ว');window.scrollTo({top:0});return render();}
     if(a==='mode'){mapMode=b.dataset.m;return paintMapParts();}
     if(a==='undo'){if(s.holed)s.holed=false;else (s.shots||[]).pop();queueSave(cur);return paintMapParts();}
     if(a==='clearshots'){s.shots=[];s.holed=false;queueSave(cur);return paintMapParts();}
