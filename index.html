@@ -62,7 +62,7 @@ details.panel>summary::-webkit-details-marker{display:none}
 .brow{display:flex;gap:6px;font-size:1.6rem;flex-wrap:wrap}
 .bgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .bdg{display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px;padding:10px 4px;border-radius:12px;border:1px solid var(--line);background:var(--bg);min-width:0}
-.bdg .be{font-size:1.7rem;filter:grayscale(1);opacity:.35}
+.bdg .be{font-size:1.7rem;white-space:nowrap;filter:grayscale(1);opacity:.35}
 .bdg .bn{font-weight:700;font-size:.8rem;line-height:1.2;color:var(--muted)}
 .bdg .bh{font-size:.68rem;color:var(--muted);line-height:1.25}
 .bdg.on{background:var(--surface);border-color:var(--accent)}
@@ -244,6 +244,7 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .msg.mine{align-self:flex-end;background:var(--birdie-bg);border-radius:12px 12px 4px 12px}
 .msg .mh{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.75rem}
 .msg .mt{overflow-wrap:anywhere;white-space:pre-wrap}
+.msys.bingo{background:#f2c230;color:#3a2c00}
 .msys{align-self:center;font-size:.8rem;font-weight:600;background:var(--soft);border-radius:999px;padding:3px 12px;text-align:center}
 .cheers{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
 .cheers .btn{flex:0 0 auto}
@@ -430,6 +431,7 @@ function roundStats(list){
 /* ---------- เหรียญรางวัล ----------
    worked out from the finished rounds on this phone, oldest first, so each badge remembers the round that earned it */
 function rdiffs(r){return r.scores.map((x,i)=>x.s==null?null:x.s-r.pars[i])}
+const nBird=r=>rdiffs(r).filter(d=>d!=null&&d<=-1).length;
 function runOf(a,ok){let best=0,c=0;a.forEach(d=>{if(d!=null&&ok(d)){c++;best=Math.max(best,c)}else c=0;});return best}
 const isFull18=r=>r.holes===18&&r.scores.every(x=>x.s!=null);
 const BADGES=[
@@ -439,7 +441,9 @@ const BADGES=[
   {id:'r50',e:'🏛️',n:'ตำนานก๊วน',h:'จบ 50 รอบ',cum:n=>n>=50,goal:50},
   {id:'bird',e:'🐦',n:'เบอร์ดี้แรก',h:'ทำเบอร์ดี้ได้ 1 หลุม',t:r=>rdiffs(r).some(d=>d!=null&&d<=-1)},
   {id:'bird2',e:'🔥',n:'เบอร์ดี้ติด',h:'เบอร์ดี้ (หรือดีกว่า) 2 หลุมติดกัน',t:r=>runOf(rdiffs(r),d=>d<=-1)>=2},
-  {id:'bird3',e:'🎩',n:'แฮตทริกเบอร์ดี้',h:'เบอร์ดี้ 3 หลุมขึ้นไปในรอบเดียว',t:r=>rdiffs(r).filter(d=>d!=null&&d<=-1).length>=3},
+  {id:'bird3',e:'🐦3',n:'วันนี้ 3 เบอร์ดี้',h:'เบอร์ดี้ (หรือดีกว่า) 3 หลุมในรอบเดียว',t:r=>nBird(r)>=3},
+  {id:'bird4',e:'🐦4',n:'วันนี้ 4 เบอร์ดี้',h:'เบอร์ดี้ (หรือดีกว่า) 4 หลุมในรอบเดียว',t:r=>nBird(r)>=4},
+  {id:'bird5',e:'🐦5',n:'วันนี้ 5 เบอร์ดี้',h:'เบอร์ดี้ (หรือดีกว่า) 5 หลุมในรอบเดียว',t:r=>nBird(r)>=5},
   {id:'eagle',e:'🦅',n:'อีเกิล',h:'ต่ำกว่าพาร์ 2 ไม้ในหลุมเดียว',t:r=>rdiffs(r).some(d=>d!=null&&d<=-2)},
   {id:'hio',e:'🎯',n:'Hole in One',h:'ตีลงหลุมในช็อตเดียว',t:r=>r.scores.some(x=>x.s===1)},
   {id:'par5',e:'🧱',n:'กำแพงพาร์',h:'พาร์หรือดีกว่า 5 หลุมติดกัน',t:r=>runOf(rdiffs(r),d=>d<=0)>=5},
@@ -672,7 +676,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.14-a';
+const APPV='2026.10.14-b';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1176,6 +1180,9 @@ function chatHighlights(){
   const out=[];let changed=false;
   const add=(id,text,o)=>{if(!seen[id]){seen[id]=Date.now();changed=true;}out.push({sys:true,at:seen[id],text,o});};
   const ok=s=>s.val!=null&&(s.st==='ok'||s.simple);
+  // Bingo: every 3 holes in a row at par or better (birdies count); the streak restarts after each bingo
+  G.players.forEach(p=>{let pr=0,bingo=0;G.pars.forEach((par,i)=>{const s=hStat(p.id,i);if(!ok(s)||s.val>par){pr=0;return}
+    if(++pr===3){pr=0;bingo++;add(`${p.id}-${gNum(i)}-bingo${bingo}`,`${p.name} Bingo ❗️❗️แตก ${bingo} 😎 (3 par ติด) · หลุม ${gNum(i-2)}–${gNum(i)}`,i*10+2);}});});
   G.players.forEach(p=>{let run=0;G.pars.forEach((par,i)=>{const s=hStat(p.id,i);if(!ok(s)){run=0;return}const d=s.val-par;
     if(s.val===1)add(`${p.id}-${gNum(i)}-hio`,`🎯 HOLE IN ONE!! ${p.name} หลุม ${gNum(i)}`,i*10);
     else if(d<=-1)add(`${p.id}-${gNum(i)}-${s.val}`,`${d<=-2?'🦅':'🐦'} ${p.name} ${diffName(d)} หลุม ${gNum(i)}`,i*10);
@@ -1204,7 +1211,7 @@ function gChatView(){
   chatMarkSeen();
   const me=gdb&&gdb.uid(),own=chatOwner(),items=chatItems(),name=chatName(),locked=chatLocked();
   let h=`<div class="panel chatp"><div class="top"><h2>ห้องเชียร์</h2><span class="muted" style="font-size:.78rem">${GC.length} ข้อความ</span></div>
-    <div class="chatlist" id="chatlist">${items.length?items.map(m=>m.sys?`<div class="msys">${esc(m.text)} <span class="muted">${hhmm(m.at)}</span></div>`:
+    <div class="chatlist" id="chatlist">${items.length?items.map(m=>m.sys?`<div class="msys ${/Bingo/.test(m.text)?'bingo':''}">${esc(m.text)} <span class="muted">${hhmm(m.at)}</span></div>`:
       `<div class="msg ${m.uid===me?'mine':''}"><div class="mh"><b>${esc(m.name)}</b>${m.role==='p'?'<span class="chip ok sm">ผู้เล่น</span>':''}<span class="muted">${hhmm(m.at)}</span>${(m.uid===me||own)?`<button class="linkbtn" data-act="cdel" data-id="${esc(m.id)}">ลบ</button>`:''}</div><div class="mt">${esc(m.text)}</div></div>`).join('')
       :'<div class="muted" style="text-align:center;padding:24px 0">ยังไม่มีข้อความ เริ่มเชียร์ได้เลย</div>'}</div>`;
   if(locked)h+=`<div class="notice">${chatClosedForDay()?'จบวันแข่งแล้ว ห้องเชียร์เปิดให้อ่านย้อนหลังอย่างเดียว':'ผู้สร้างก๊วนปิดห้องเชียร์ชั่วคราว'}</div>`;
