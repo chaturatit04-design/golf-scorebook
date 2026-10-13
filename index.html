@@ -1110,6 +1110,16 @@ function gTouch(){
   gdb.doc('groups/'+code).stamp({thru},'last').catch(()=>{});
   if(G.public)liveCard(false);
 }
+// remove temporary docs (viewer pings, lobby card) once a round is over; only the owner may delete other people's pings
+async function gCleanup(code){
+  try{const ref=gdb.doc('groups/'+code);const ids=await ref.ids('watch');
+    for(let i=0;i<ids.length;i+=20)await Promise.all(ids.slice(i,i+20).map(id=>gdb.doc(`groups/${code}/watch/${id}`).remove().catch(()=>{})));
+    await gdb.doc('live/'+code).remove().catch(()=>{});
+    await ref.set({cleaned:true},true).catch(()=>{});
+  }catch(e){console.error(e)}
+}
+// a viewer leaving removes their own ping right away
+function gLeaveWatch(code){const u=gdb&&gdb.uid();if(u&&code)gdb.doc(`groups/${code}/watch/${u}`).remove().catch(()=>{});}
 async function gDeleteGroup(){
   const code=G.code,ref=gdb.doc('groups/'+code);gDeleting=true;render();
   gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);
@@ -1132,7 +1142,7 @@ function liveCard(ended){
 }
 function gStartWatch(code){
   clearInterval(gHB);gWatchers=null;
-  const beat=()=>{if(view!=='group'||!G||G.code!==code||document.visibilityState==='hidden')return;
+  const beat=()=>{if(view!=='group'||!G||G.code!==code||document.visibilityState==='hidden'||G.ended||G.archived||G.cleaned)return;
     gdb.authReady.then(u=>{if(!u)return;
       gdb.doc(`groups/${code}/watch/${u.uid}`).stampOnly('at',Date.now()+6*3600000).catch(()=>{});
       setTimeout(()=>gdb.doc('groups/'+code).count('watch',Date.now()-150000).then(n=>{if(G&&G.code===code){gWatchers=n;if(view==='group')render();}}).catch(()=>{}),1500);});};
@@ -1170,7 +1180,7 @@ function setKey(c,k){try{localStorage.setItem('golf-gk-'+c,k)}catch(e){}}
 function getMe(c){try{return localStorage.getItem('golf-g-me-'+c)}catch(e){return null}}
 function setMe(c,p){try{if(p)localStorage.setItem('golf-g-me-'+c,p);else localStorage.removeItem('golf-g-me-'+c)}catch(e){}}
 const gCode=()=>{const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=A[Math.floor(Math.random()*A.length)];return s};
-function gStop(){gDelAsk=false;gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);gWatchers=null;}
+function gStop(){gDelAsk=false;if(G&&G.code)gLeaveWatch(G.code);gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);gWatchers=null;}
 async function checkMember(code){
   try{const u=await gdb.authReady;if(!u)return;const k=getKey(code);
     const m=gdb.doc(`groups/${code}/members/${u.uid}`);let ok=(await m.get()).exists;
@@ -1195,6 +1205,7 @@ function openGroup(code,key){
     // keep my unsent entries on screen
     Object.entries(gq).forEach(([pid,q])=>{if(q.code===code)mergeDeep(GS[pid]=GS[pid]||{},q.patch);});
     if(view==='group'&&!G.loading)render();
+    if(G&&!G.loading&&!G.missing&&!G.cleaned&&G.owner===gdb.uid()&&gAllDone()){G.cleaned=true;setTimeout(()=>gCleanup(code),5000);}
   },()=>{}));
   GC=[];
   gUnsub.push(ref.latest('chat',150,s=>{
@@ -1419,10 +1430,10 @@ function gClick(a,b){
   if(a==='ginc'||a==='gdec'){const pid=b.dataset.p,s=hStat(pid,gHole),mine=(gEntries(pid,gHole).find(x=>x[0]===gMe)||[])[1];
     const base=mine!=null?mine:(s.val!=null?s.val:gPar(gHole));gWrite(pid,Math.max(1,Math.min(15,base+(a==='ginc'?1:-1))));return true}
   if(a==='gsign'){const pid=b.dataset.p;gPatch(pid,{sig:{[gMe]:Date.now()}});toast(pid===gMe?'ยืนยันสกอร์การ์ดแล้ว':`รับรองสกอร์การ์ดของ ${pName(pid)} แล้ว`);render();return true}
-  if(a==='gend'&&G.owner===gdb.uid()){gdb.doc('groups/'+G.code).set({ended:true},true).then(()=>{G.ended=true;liveCard(true);toast('จบรอบแล้ว')});return true}
+  if(a==='gend'&&G.owner===gdb.uid()){const code=G.code;gdb.doc('groups/'+code).set({ended:true},true).then(()=>{G.ended=true;gCleanup(code);toast('จบรอบแล้ว')});return true}
   if(a==='gunend'&&G.owner===gdb.uid()){gdb.doc('groups/'+G.code).set({ended:false},true);return true}
   if(a==='garchive'&&G.owner===gdb.uid()){const on=!G.archived;
-    gdb.doc('groups/'+G.code).set({archived:on},true).then(()=>{G.archived=on;if(on){gdb.doc('live/'+G.code).remove().catch(()=>{});gRO=true;}else{gRO=true;checkMember(G.code);}
+    gdb.doc('groups/'+G.code).set({archived:on},true).then(()=>{G.archived=on;if(on){gCleanup(G.code);gRO=true;}else{gRO=true;checkMember(G.code);}
       if(GL[G.code])GL[G.code].archived=on;toast(on?'เก็บเข้าคลังแล้ว':'เอาออกจากคลังแล้ว');render();});return true}
   if(a==='gdelask'){gDelAsk=true;render();return true}
   if(a==='gdelno'){gDelAsk=false;render();return true}
@@ -1563,6 +1574,7 @@ fetch('courses.json').then(r=>r.ok?r.json():null).then(j=>{
   rebuildCourses();if(store)render();
 }).catch(()=>{});
 initStore();
+window.addEventListener('pagehide',()=>{if(view==='group'&&G&&G.code)gLeaveWatch(G.code);});
 setInterval(()=>{if(view==='group'&&G&&!G.loading&&!G.missing&&document.getElementById('chatin')!==document.activeElement)render();},30000);
 initFirebase().then(fb=>{gdb=fb;if(view==='home'){loadLobby(true);}
   const q=new URLSearchParams(location.search),g=(q.get('g')||'').toUpperCase(),k=q.get('k');
