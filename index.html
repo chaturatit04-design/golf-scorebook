@@ -211,6 +211,20 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .mute{font-size:.8rem;display:flex;gap:6px;align-items:center}
 .ubadge{display:inline-block;min-width:18px;padding:0 5px;border-radius:999px;background:var(--dbl);color:#fff;font-size:.7rem;line-height:18px;font-family:var(--f-num)}
 .seg button{font-size:.88rem}
+.live{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.live b{font-family:var(--f-display);font-size:1rem}
+.live .lsub{font-size:.8rem;color:var(--muted)}
+.live.live{background:var(--birdie-bg);border-color:var(--birdie)} .live.live b{color:var(--birdie)}
+.ldot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--muted);flex:0 0 auto;vertical-align:middle}
+.ldot.sm{width:9px;height:9px}
+.live.live .ldot,.ldot.live{background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6)}
+.live.pause .ldot,.ldot.pause{background:#eab308}
+.live.done .ldot,.ldot.done{background:var(--line)}
+.live.idle .ldot,.ldot.idle{background:transparent;border:2px solid var(--muted)}
+@media (prefers-reduced-motion:no-preference){.live.live .ldot,.ldot.live{animation:pulse 1.6s ease-out infinite}}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.6)}100%{box-shadow:0 0 0 10px rgba(34,197,94,0)}}
+.optin{display:flex;gap:10px;align-items:flex-start;font-size:.88rem;padding:4px 2px}
+.optin input{margin-top:4px}
 </style>
 </head><body>
 
@@ -563,6 +577,7 @@ function homeView(){
     <span class="badge ${relCls(t.strokes-t.par)}">${t.n?toPar(t.strokes-t.par):'–'}</span></div>
     <button class="btn primary full" data-act="resume" data-id="${open.id}">เล่นต่อ</button></div>`;}
   h+=`<button class="btn ${open?'':'primary'} full" data-act="new">เริ่มรอบใหม่</button>`;
+  loadLobby();h+=lobbyHTML();
   h+=`<button class="btn full gbtn" data-act="events"><span>นัดออกรอบ</span><span class="muted" style="font-weight:500;font-size:.82rem">ส่งลิงก์ให้เพื่อนลงชื่อ · ปิดรับคืนก่อนวันเล่น 21:00</span></button>`;
   h+=`<button class="btn full gbtn" data-act="groups"><span>ก๊วน · แข่งกับเพื่อน</span><span class="muted" style="font-weight:500;font-size:.82rem">กรอกสกอร์ร่วมกัน ตรวจทาน และดูอันดับสด</span></button>`;
   if(!list.length){
@@ -816,9 +831,13 @@ async function initFirebase(){
     del:field=>F.updateDoc(r,{[field]:F.deleteField()}),
     remove:()=>F.deleteDoc(r),
     add:(c,d)=>F.addDoc(F.collection(fs,p+'/'+c),Object.assign({},d,{at:F.serverTimestamp()})),
+    stamp:(d,f)=>F.setDoc(r,Object.assign({},d,{[f]:F.serverTimestamp()}),{merge:true}),
+    stampOnly:f=>F.setDoc(r,{[f]:F.serverTimestamp()}),
+    count:(c,since)=>F.getCountFromServer(F.query(F.collection(fs,p+'/'+c),F.where('at','>',F.Timestamp.fromMillis(since)))).then(x=>x.data().count),
     latest:(c,n,f,e)=>F.onSnapshot(F.query(F.collection(fs,p+'/'+c),F.orderBy('at','desc'),F.limit(n)),s=>f({docs:s.docs.map(W)}),e),
     collection:c=>({onSnapshot:(f,e)=>F.onSnapshot(F.collection(fs,p+'/'+c),s=>f({docs:s.docs.map(W)}),e)})}};
-  return {doc,authReady,uid:()=>auth.currentUser&&auth.currentUser.uid};
+  const recent=(c,since,n)=>F.getDocs(F.query(F.collection(fs,c),F.where('last','>',F.Timestamp.fromMillis(since)),F.orderBy('last','desc'),F.limit(n))).then(s=>s.docs.map(d=>Object.assign({id:d.id},d.data())));
+  return {doc,recent,authReady,uid:()=>auth.currentUser&&auth.currentUser.uid};
 }
 /* ---------- นัดออกรอบ ----------
    events/<ID>: owner, course, date, time, cap (2-10), minP, note, openAt, closeAt (21:00 the night before),
@@ -1053,6 +1072,66 @@ function chatClick(a,b){
   return false;
 }
 
+/* ---------- LIVE status, viewers, lobby ----------
+   groups/<CODE>.last / .thru : touched by players at most once a minute while scoring
+   groups/<CODE>/watch/<uid>  : viewer heartbeat (every minute while the page is visible)
+   live/<CODE>                : public lobby card, only for groups whose owner ticked "public" */
+const tsMs=v=>!v?0:typeof v==='number'?v:v.toMillis?v.toMillis():v.seconds?v.seconds*1000:0;
+function gAllDone(){return G&&G.players&&G.players.every(p=>G.pars.every((x,i)=>hStat(p.id,i).val!=null))}
+function gThru(){if(!G||!G.pars)return 0;let m=0;G.pars.forEach((x,i)=>{if(G.players.some(p=>hStat(p.id,i).val!=null))m=i+1;});return m}
+function liveState(last,ended,started){
+  const age=Date.now()-tsMs(last);
+  if(ended)return{k:'done',dot:'⚪',t:'จบรอบแล้ว'};
+  if(!started||!tsMs(last))return{k:'idle',dot:'◯',t:'ยังไม่เริ่ม'};
+  if(age<30*60000)return{k:'live',dot:'🟢',t:'LIVE · กำลังออกรอบ'};
+  return{k:'pause',dot:'🟡',t:'พักอยู่'};
+}
+const ago=ms=>{const m=Math.round((Date.now()-ms)/60000);return m<1?'เมื่อสักครู่':m<60?`${m} นาทีที่แล้ว`:`${Math.floor(m/60)} ชม. ${m%60} นาทีที่แล้ว`};
+function gLive(){const t=gThru();return liveState(G.last,G.ended||gAllDone(),t>0)}
+function liveBadge(){
+  const s=gLive(),t=gThru(),last=tsMs(G.last);
+  const sub=s.k==='live'?`หลุม ${gNum(Math.max(0,t-1))} · อัปเดต ${ago(last)}`:s.k==='pause'?`อัปเดตล่าสุด ${ago(last)}`:s.k==='done'?`เล่นถึงหลุม ${t?gNum(t-1):'-'}`:'รอผู้เล่นกรอกสกอร์หลุมแรก';
+  return `<div class="live ${s.k}"><span class="ldot"></span><b>${s.t}</b><span class="lsub">${sub}</span>${gWatchers!=null&&s.k!=='done'?`<span class="lsub">👀 ${gWatchers} คนกำลังดู</span>`:''}</div>`;
+}
+let gTouchAt=0,gWatchers=null,gHB=null;
+function gTouch(){
+  if(!G||gRO||Date.now()-gTouchAt<45000)return;gTouchAt=Date.now();
+  const thru=gThru(),code=G.code;
+  gdb.doc('groups/'+code).stamp({thru},'last').catch(()=>{});
+  if(G.public)liveCard(false);
+}
+function liveCard(ended){
+  if(!G||!G.public)return;const rows=gRows().filter(r=>r.thru).sort((a,b)=>a.toPar-b.toPar);
+  const lead=rows[0];
+  gdb.doc('live/'+G.code).stamp({course:G.course,date:G.date,n:G.players.length,thru:gThru(),ended:!!(ended||G.ended||gAllDone()),
+    lead:lead?lead.p.name:'',leadPar:lead?lead.toPar:0},'last').catch(()=>{});
+}
+function gStartWatch(code){
+  clearInterval(gHB);gWatchers=null;
+  const beat=()=>{if(view!=='group'||!G||G.code!==code||document.visibilityState==='hidden')return;
+    gdb.authReady.then(u=>{if(!u)return;
+      gdb.doc(`groups/${code}/watch/${u.uid}`).stampOnly('at').catch(()=>{});
+      setTimeout(()=>gdb.doc('groups/'+code).count('watch',Date.now()-150000).then(n=>{if(G&&G.code===code){gWatchers=n;if(view==='group')render();}}).catch(()=>{}),1500);});};
+  beat();gHB=setInterval(beat,60000);
+}
+// lobby on the home screen
+let LIVE=[],liveAt=0;
+function loadLobby(force){
+  if(!gdb||(!force&&Date.now()-liveAt<60000))return;liveAt=Date.now();
+  gdb.recent('live',Date.now()-3*3600000,20).then(d=>{LIVE=d.filter(x=>!x.ended);if(view==='home')render();}).catch(()=>{});
+}
+function lobbyHTML(){
+  if(!LIVE.length)return'';
+  return `<div class="panel"><div class="top"><h2>กำลังแข่งตอนนี้</h2><span class="muted" style="font-size:.78rem">${LIVE.length} ก๊วน</span></div><div class="list">${LIVE.map(x=>{const s=liveState(x.last,x.ended,x.thru>0);
+    return `<button class="item" data-act="lobbyopen" data-code="${esc(x.id)}"><div style="min-width:0"><div class="t"><span class="ldot sm ${s.k}"></span> ${esc(x.course||'')}</div><div class="muted" style="font-size:.82rem">${x.n} คน · หลุม ${x.thru||'-'}${x.lead?` · นำ: ${esc(x.lead)} ${toPar(x.leadPar)}`:''}</div></div><span class="muted" style="font-size:.75rem">${s.k==='live'?'LIVE':ago(tsMs(x.last))}</span><span class="muted">›</span></button>`}).join('')}</div></div>`;
+}
+// status dots for "groups I've opened"
+const GL={};let glAt=0;
+function loadGroupDots(){
+  if(!gdb||Date.now()-glAt<60000)return;glAt=Date.now();
+  myGroups().slice(0,12).forEach(x=>gdb.doc('groups/'+x.code).get().then(s=>{if(s.exists){const d=s.data();GL[x.code]=liveState(d.last,d.ended,(d.thru||0)>0);if(view==='groups')render();}}).catch(()=>{}));
+}
+
 /* ---------- ก๊วน: shared live scoring ----------
    g/<CODE>            group: course, pars, players[{id,name,hcp}]
    groups/<CODE>/scores/<pid>  one doc per player: h.<hole>.<enteredBy> = strokes, sig.<who> = time
@@ -1067,7 +1146,7 @@ function setKey(c,k){try{localStorage.setItem('golf-gk-'+c,k)}catch(e){}}
 function getMe(c){try{return localStorage.getItem('golf-g-me-'+c)}catch(e){return null}}
 function setMe(c,p){try{if(p)localStorage.setItem('golf-g-me-'+c,p);else localStorage.removeItem('golf-g-me-'+c)}catch(e){}}
 const gCode=()=>{const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=A[Math.floor(Math.random()*A.length)];return s};
-function gStop(){gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];}
+function gStop(){gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);gWatchers=null;}
 async function checkMember(code){
   try{const u=await gdb.authReady;if(!u)return;const k=getKey(code);
     const m=gdb.doc(`groups/${code}/members/${u.uid}`);let ok=(await m.get()).exists;
@@ -1080,7 +1159,7 @@ function openGroup(code,key){
   if(!gdb){toast('ยังเชื่อมต่อระบบก๊วนไม่ได้ ลองอีกครั้ง');return}
   if(key)setKey(code,key);
   gStop();G={loading:true,code};GS={};gMe=getMe(code);gHole=0;gRO=true;gTab='board';view='group';render();
-  checkMember(code);
+  checkMember(code);gStartWatch(code);
   const ref=gdb.doc('groups/'+code);
   gUnsub.push(ref.onSnapshot(s=>{
     if(!s.exists){G={missing:true,code};}else{G=Object.assign({code},JSON.parse(JSON.stringify(s.data())));rememberGroup(G);
@@ -1112,6 +1191,7 @@ async function gFlush(pid){
     // saved to this phone at once and sent when there is signal
     gdb.doc(`groups/${q.code}/scores/${pid}`).set(p,true).catch(e=>{
       if(e&&e.code==='permission-denied'){gRO=true;toast('ลิงก์นี้เป็นลิงก์ผู้ชม กรอกสกอร์ไม่ได้');render();}else toast('ส่งสกอร์ไม่สำเร็จ');});
+    gTouch();
   }
   q.busy=false;
 }
@@ -1140,8 +1220,9 @@ function groupsView(){
   h+=`<div class="panel"><h2>ดูก๊วนด้วยรหัส</h2><div class="muted" style="font-size:.85rem">ใส่รหัสเพื่อดูอันดับสด ถ้าคุณเป็นผู้เล่น ให้เปิดจากลิงก์ผู้เล่นที่ได้รับแทน จึงจะกรอกสกอร์ได้</div><div class="field"><label class="label" for="gcode">รหัสก๊วน 6 ตัว</label>
     <div class="row"><input id="gcode" class="codein" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="เช่น K7M2QX"><button class="btn primary" data-act="gjoin">เข้าร่วม</button></div></div></div>`;
   h+=`<button class="btn primary full" data-act="gnew">สร้างก๊วนใหม่</button>`;
-  const l=myGroups();
-  if(l.length)h+=`<div class="panel"><h2>ก๊วนที่เคยเข้า</h2><div class="list">${l.map(x=>`<button class="item" data-act="gopen" data-code="${esc(x.code)}"><div style="min-width:0"><div class="t">${esc(x.course||'')}</div><div class="muted" style="font-size:.85rem">${x.date?fmtDate(x.date):''}</div></div><span class="num" style="font-weight:600;letter-spacing:.08em">${esc(x.code)}</span><span></span></button>`).join('')}</div></div>`;
+  loadGroupDots();const ord={live:0,pause:1,idle:2,done:3};
+  const l=myGroups().slice().sort((a,b)=>(ord[(GL[a.code]||{}).k]??2)-(ord[(GL[b.code]||{}).k]??2));
+  if(l.length)h+=`<div class="panel"><h2>ก๊วนที่เคยเข้า</h2><div class="list">${l.map(x=>`<button class="item" data-act="gopen" data-code="${esc(x.code)}"><div style="min-width:0"><div class="t">${GL[x.code]?`<span class="ldot sm ${GL[x.code].k}"></span> `:''}${esc(x.course||'')}</div><div class="muted" style="font-size:.85rem">${x.date?fmtDate(x.date):''}</div></div><span class="num" style="font-weight:600;letter-spacing:.08em">${esc(x.code)}</span><span></span></button>`).join('')}</div></div>`;
   return h;
 }
 function gNewView(){
@@ -1157,10 +1238,12 @@ function gNewView(){
     ${gNew.players.map((p,i)=>`<div class="prow"><input id="gpn${i}" value="${esc(p.name)}" placeholder="ชื่อผู้เล่น ${i+1}" autocomplete="off"><input id="gph${i}" type="number" inputmode="numeric" min="0" max="54" value="${p.hcp??''}" placeholder="HCP"><button class="btn sm ${gNew.me===i?'primary':''}" data-act="gme" data-i="${i}" aria-pressed="${gNew.me===i}">${gNew.me===i?'ฉัน':'ใช่ฉัน?'}</button></div>`).join('')}
     ${gNew.players.length<10?`<button class="btn sm" data-act="gadd">+ เพิ่มผู้เล่น</button>`:''}
   </div>
+  <label class="optin"><input type="checkbox" id="gpublic" ${gNew.public?'checked':''}><span><b>แสดงในหน้า "กำลังแข่งตอนนี้"</b><br><span class="muted">ใครเปิดเว็บก็เห็นชื่อสนาม ผู้นำ และกดเข้ามาดูอันดับได้ ไม่ติ๊กก็ดูได้เฉพาะคนที่มีลิงก์</span></span></label>
   <button class="btn primary full" data-act="gcreate">สร้างก๊วนและรับรหัส</button>`;
 }
 function readGNew(){const v=id=>{const e=document.getElementById(id);return e?e.value:null};
   if(v('gcourse')!=null)gNew.course=v('gcourse').trim();if(v('gdate'))gNew.date=v('gdate');
+  const pub=document.getElementById('gpublic');if(pub)gNew.public=pub.checked;
   gNew.players.forEach((p,i)=>{const n=v('gpn'+i),hc=v('gph'+i);if(n!=null)p.name=n.trim();if(hc!=null)p.hcp=hc===''?null:Math.max(0,Math.min(54,+hc));});}
 async function gCreate(){
   readGNew();const ps=gNew.players.filter(p=>p.name);
@@ -1174,7 +1257,7 @@ async function gCreate(){
     const key=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');
     const players=ps.map((p,i)=>({id:'p'+(i+1),name:p.name,hcp:p.hcp??null}));
     const meIdx=ps.indexOf(gNew.players[gNew.me]);
-    const doc={owner:u.uid,course:gNew.course,date:gNew.date,holes:gNew.holes,start:gNew.start,pars:parsFor(gNew.course,gNew.holes,gNew.start),players,createdAt:Date.now()};
+    const doc={owner:u.uid,public:!!gNew.public,course:gNew.course,date:gNew.date,holes:gNew.holes,start:gNew.start,pars:parsFor(gNew.course,gNew.holes,gNew.start),players,createdAt:Date.now()};
     await gdb.doc('groups/'+code).set(doc);
     await gdb.doc('groupKeys/'+code).set({k:key});
     await gdb.doc(`groups/${code}/members/${u.uid}`).set({k:key,at:Date.now()});
@@ -1188,7 +1271,7 @@ function groupView(){
   const back=`<div class="top"><button class="btn" data-act="groups">‹ ก๊วน</button>${G&&G.players?`<button class="btn sm" data-act="gcopy">คัดลอกลิงก์ผู้ชม</button>`:''}</div>`;
   if(!G||G.loading)return back+`<p class="muted">กำลังโหลดก๊วน ${esc(G?G.code:'')}…</p>`;
   if(G.missing)return back+`<div class="notice">ไม่พบก๊วนรหัส ${esc(G.code)} ตรวจรหัสอีกครั้ง</div>`;
-  let h=back+`<div><div class="label">${esc(G.course)} · ${fmtDate(G.date)} · ${G.holes} หลุม</div><h1>ก๊วน <span class="num" style="letter-spacing:.08em">${esc(G.code)}</span></h1></div>`;
+  let h=back+`<div><div class="label">${esc(G.course)} · ${fmtDate(G.date)} · ${G.holes} หลุม</div><h1>ก๊วน <span class="num" style="letter-spacing:.08em">${esc(G.code)}</span></h1></div>`+liveBadge();
   if(gRO)h+=`<div class="notice">โหมดผู้ชม: ดูอันดับและสกอร์การ์ดแบบสด ถ้าคุณเป็นผู้เล่น ให้เปิดจากลิงก์ผู้เล่น</div>`;
   if(!gMe&&!gRO)return h+`<div class="panel"><h2>คุณคือใคร</h2><div class="muted" style="font-size:.88rem">เลือกชื่อตัวเอง เพื่อให้ระบบรู้ว่าใครเป็นคนกรอกแต่ละค่า</div>
     <div class="pick">${G.players.map(p=>`<button class="btn" data-act="gwho" data-p="${p.id}">${esc(p.name)}</button>`).join('')}<button class="btn" data-act="gwho" data-p="watch">ผู้ชม (ดูอย่างเดียว)</button></div></div>`;
@@ -1207,7 +1290,10 @@ function gShareView(){const L=gLinks();
   return `<div class="panel"><h2>ลิงก์ผู้เล่น</h2><div class="muted" style="font-size:.88rem">ส่งเฉพาะคนในก๊วน เปิดแล้วเลือกชื่อตัวเองและกรอกสกอร์ได้ ไม่ต้องสมัครอะไร</div>
     ${L.play?`<div class="linkbox num">${esc(L.play)}</div><button class="btn primary full" data-act="gcopylink" data-w="play">คัดลอกลิงก์ผู้เล่น</button>`:'<div class="muted">เครื่องนี้ไม่มีลิงก์ผู้เล่น</div>'}</div>
   <div class="panel"><h2>ลิงก์ผู้ชม</h2><div class="muted" style="font-size:.88rem">ส่งให้ใครก็ได้ ดูอันดับและสกอร์การ์ดแบบสด แต่กรอกสกอร์ไม่ได้</div>
-    <div class="linkbox num">${esc(L.watch)}</div><button class="btn full" data-act="gcopylink" data-w="watch">คัดลอกลิงก์ผู้ชม</button></div>`;}
+    <div class="linkbox num">${esc(L.watch)}</div><button class="btn full" data-act="gcopylink" data-w="watch">คัดลอกลิงก์ผู้ชม</button></div>
+  ${G.owner===gdb.uid()?`<div class="panel"><h2>สำหรับผู้สร้างก๊วน</h2>
+    <button class="btn full" data-act="gpub">${G.public?'เลิกแสดงในหน้า "กำลังแข่งตอนนี้"':'แสดงในหน้า "กำลังแข่งตอนนี้"'}</button>
+    ${G.ended?'<button class="btn full" data-act="gunend">เปิดรอบนี้ต่อ</button>':'<button class="btn danger full" data-act="gend">จบรอบ (เลิกเล่นก่อนครบหลุม)</button>'}</div>`:''}`;}
 function stChip(s,pid){
   if(s.st==='ok')return `<span class="chip ok">✓ ตรงกัน ${s.e.length} คน</span>`;
   if(s.st==='conflict')return `<span class="chip bad">ไม่ตรง: ${s.e.map(([w,v])=>`${esc(w===pid?'ตัวเอง':pName(w))} ${v}`).join(' · ')}</span>`;
@@ -1240,6 +1326,7 @@ function gBoardView(){
     h+=`<div class="br ${r.p.id===gMe?'me':''}"><span class="num">${r.thru?rank:'–'}</span><span class="t">${esc(r.p.name)}${r.conf?` <span class="chip bad sm">ไม่ตรง ${r.conf}</span>`:''}${r.sig.includes(r.p.id)?' <span class="chip ok sm">ยืนยันแล้ว</span>':''}</span>
       <span class="num">${r.thru}</span><span class="num b">${r.thru?r.g:'–'}</span><span class="num b ${r.thru?scCls(Math.sign(r.toPar)*Math.min(Math.abs(r.toPar),2)):''}">${r.thru?toPar(r.toPar):'–'}</span>${anyH?`<span class="num">${r.thru&&r.hcp?r.net:'–'}</span>`:''}</div>`;});
   h+=`</div>${anyH?'<div class="muted" style="font-size:.78rem">Net = สกอร์รวม − แฮนดิแคปตามสัดส่วนหลุมที่เล่น (ต้นแบบนี้ยังไม่ใช้ Stroke Index ของแต่ละหลุม)</div>':''}</div>`;
+  if(G.owner===gdb.uid()&&!G.ended&&!gAllDone()&&gThru()>0)h+=`<button class="btn full" data-act="gend">จบรอบ</button>`;
   if(gMe&&gMe!=='watch'){
     const me=rows.find(r=>r.p.id===gMe);
     if(me){const allDone=me.thru===G.pars.length,ok=allDone&&!me.conf,signed=me.sig.includes(gMe);
@@ -1274,6 +1361,7 @@ function gWrite(pid,val){
   gPatch(pid,patch);render();
 }
 function gClick(a,b){
+  if(a==='lobbyopen'){openGroup(b.dataset.code,getKey(b.dataset.code));return true}
   if(view==='group'&&G&&!G.loading&&!G.missing&&chatClick(a,b))return true;
   if(a==='groups'){gStop();G=null;view='groups';render();return true}
   if(a==='gopen'){openGroup(b.dataset.code,getKey(b.dataset.code));return true}
@@ -1296,10 +1384,14 @@ function gClick(a,b){
   if(a==='ginc'||a==='gdec'){const pid=b.dataset.p,s=hStat(pid,gHole),mine=(gEntries(pid,gHole).find(x=>x[0]===gMe)||[])[1];
     const base=mine!=null?mine:(s.val!=null?s.val:gPar(gHole));gWrite(pid,Math.max(1,Math.min(15,base+(a==='ginc'?1:-1))));return true}
   if(a==='gsign'){const pid=b.dataset.p;gPatch(pid,{sig:{[gMe]:Date.now()}});toast(pid===gMe?'ยืนยันสกอร์การ์ดแล้ว':`รับรองสกอร์การ์ดของ ${pName(pid)} แล้ว`);render();return true}
-  if(a==='gcopylink'){const L=gLinks(),w=b.dataset.w,t=w==='play'?`ก๊วน ${G.course} (ลิงก์ผู้เล่น กรอกสกอร์ได้)\n${L.play}`:`ดูอันดับสด ก๊วน ${G.course}\n${L.watch}`;
+  if(a==='gend'&&G.owner===gdb.uid()){gdb.doc('groups/'+G.code).set({ended:true},true).then(()=>{G.ended=true;liveCard(true);toast('จบรอบแล้ว')});return true}
+  if(a==='gunend'&&G.owner===gdb.uid()){gdb.doc('groups/'+G.code).set({ended:false},true);return true}
+  if(a==='gpub'&&G.owner===gdb.uid()){const on=!G.public;gdb.doc('groups/'+G.code).set({public:on},true).then(()=>{G.public=on;if(on)liveCard();else gdb.doc('live/'+G.code).remove().catch(()=>{});toast(on?'แสดงในหน้ากำลังแข่งแล้ว':'เลิกแสดงแล้ว')});return true}
+  const liveTag=gLive().k==='live'?'🟢 กำลังแข่งสด · ':'';
+  if(a==='gcopylink'){const L=gLinks(),w=b.dataset.w,t=w==='play'?`ก๊วน ${G.course} (ลิงก์ผู้เล่น กรอกสกอร์ได้)\n${L.play}`:`${liveTag}ดูอันดับสด ก๊วน ${G.course}\n${L.watch}`;
     try{navigator.clipboard.writeText(t).then(()=>toast('คัดลอกลิงก์แล้ว'),()=>fallbackCopy(t))}catch(e){fallbackCopy(t)}return true}
-  if(a==='gcopy'){const t=`ดูอันดับสด ก๊วน ${G.course}\n${gLinks().watch}`;
-    try{navigator.clipboard.writeText(t).then(()=>toast('คัดลอกรหัสก๊วนแล้ว'),()=>fallbackCopy(t))}catch(e){fallbackCopy(t)}return true}
+  if(a==='gcopy'){const t=`${liveTag}ดูอันดับสด ก๊วน ${G.course}\n${gLinks().watch}`;
+    try{navigator.clipboard.writeText(t).then(()=>toast('คัดลอกลิงก์ผู้ชมแล้ว'),()=>fallbackCopy(t))}catch(e){fallbackCopy(t)}return true}
   if(a==='gsave'){const r={id:'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),course:G.course,date:G.date,holes:G.holes,start:G.start||0,
       pars:G.pars.slice(),scores:G.pars.map((p,i)=>({s:hStat(gMe,i).val,p:null,f:null,hz:[],shots:[]})),complete:G.pars.every((p,i)=>hStat(gMe,i).val!=null),createdAt:Date.now(),group:G.code};
     chain=chain.then(()=>store.save(r)).then(()=>{rounds=rounds.filter(x=>x.id!==r.id).concat([r]);toast('บันทึกลงสมุดสกอร์แล้ว เพิ่มพัตต์และแฟร์เวย์ได้ในหน้ารอบ')}).catch(()=>toast('บันทึกไม่สำเร็จ'));return true}
@@ -1429,7 +1521,8 @@ fetch('courses.json').then(r=>r.ok?r.json():null).then(j=>{
   rebuildCourses();if(store)render();
 }).catch(()=>{});
 initStore();
-initFirebase().then(fb=>{gdb=fb;
+setInterval(()=>{if(view==='group'&&G&&!G.loading&&!G.missing&&document.getElementById('chatin')!==document.activeElement)render();},30000);
+initFirebase().then(fb=>{gdb=fb;if(view==='home'){loadLobby(true);}
   const q=new URLSearchParams(location.search),g=(q.get('g')||'').toUpperCase(),k=q.get('k');
   const ev=q.get('e');
   if(g){if(k){setKey(g,k);try{history.replaceState(null,'',baseUrl()+'?g='+g)}catch(e){}}openGroup(g,k);}
