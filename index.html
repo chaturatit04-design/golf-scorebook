@@ -236,6 +236,10 @@ details.panel summary{cursor:pointer;list-style:none}
 details.panel summary::-webkit-details-marker{display:none}
 .brand{letter-spacing:-.01em}
 .brand span{color:var(--accent)}
+.shprev{position:relative;margin-inline:auto;width:min(100%,360px);border-radius:16px;overflow:hidden;background:var(--soft);box-shadow:0 8px 30px rgba(0,0,0,.15)}
+.shprev.\39x16{aspect-ratio:9/16;width:min(100%,300px)} .shprev.\34x5{aspect-ratio:4/5} .shprev.\31x1{aspect-ratio:1/1}
+.shprev img{display:block;width:100%;height:100%;object-fit:contain}
+.shbusy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--scrim);font-weight:600}
 </style>
 </head><body>
 
@@ -573,6 +577,7 @@ function render(){
   else if(view==='events')app.innerHTML=eventsView();
   else if(view==='enew')app.innerHTML=eFormView();
   else if(view==='event')app.innerHTML=eventView();
+  else if(view==='share')app.innerHTML=shareView();
   if(view==='play'){const c=app.querySelector('.holebar .cur');if(c)c.scrollIntoView({inline:'center',block:'nearest'});}
   const ci2=document.getElementById('chatin');if(ci2&&cv!=null){ci2.value=cv;if(cf){ci2.focus();try{ci2.setSelectionRange(cv.length,cv.length)}catch(e){}}}
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
@@ -719,6 +724,7 @@ function cardView(){
   <div class="legend"><span>อุปสรรค: <b class="hz">ท</b> ทราย · <b class="hz">น</b> น้ำ · <b class="hz">OB</b> นอกเขต</span></div>
   ${analysisHTML(r)}
   ${thumbs}
+  <button class="btn primary full" data-act="sharecard">สร้างการ์ดโชว์สกอร์ลงโซเชียล</button>
   <button class="btn full" data-act="copy">คัดลอกสกอร์การ์ดเป็นข้อความ</button>
   ${confirmDel?`<div class="confirm"><strong>ลบรอบนี้ถาวร?</strong><span class="muted">สกอร์และเส้นทางลูกทุกหลุมของรอบนี้จะหายไป และกู้คืนไม่ได้</span><div class="row"><button class="btn" data-act="nodel">ไม่ลบ</button><button class="btn danger" data-act="dodel">ลบรอบนี้</button></div></div>`
   :`<button class="btn danger full" data-act="del">ลบรอบนี้</button>`}`;
@@ -1175,6 +1181,179 @@ function loadGroupDots(){
   myGroups().slice(0,12).forEach(x=>gdb.doc('groups/'+x.code).get().then(s=>{if(s.exists){const d=s.data();GL[x.code]=Object.assign({archived:!!d.archived},liveState(d.last,d.ended,(d.thru||0)>0));if(view==='groups')render();}}).catch(()=>{}));
 }
 
+/* ---------- การ์ดโชว์สกอร์ ----------
+   Drawn on a canvas on the player's phone; nothing is uploaded. */
+const CARD={ink:'#13241a',muted:'#5b6a5f',paper:'#ffffff',line:'#d9e2d4',green:'#1d6a43',
+  eagle:'#0d5a31',birdie:'#22a35a',bogey:'#e07a12',dbl:'#d33a2c',glass:'rgba(255,255,255,0.9)'};
+const SIZES={'9x16':[1080,1920],'4x5':[1080,1350],'1x1':[1080,1080]};
+let SH=null;
+// one card source: {course,date,name,pars[],vals[],start,putts,fir,gir,round?,kind}
+function srcFromRound(r){const st=roundStats([r]),t=totals(r);
+  return {kind:'round',round:r,course:r.course,date:r.date,start:r.start||0,pars:r.pars.slice(),vals:r.scores.map(x=>x.s),
+    putts:t.putts||null,fir:st.fir,gir:st.gir};}
+function srcFromGroup(pid){const p=G.players.find(x=>x.id===pid);
+  return {kind:'gplayer',course:G.course,date:G.date,start:G.start||0,pars:G.pars.slice(),vals:G.pars.map((x,i)=>hStat(pid,i).val),name:p?p.name:''};}
+function srcGroupResult(){return {kind:'gresult',course:G.course,date:G.date,rows:gRows().filter(r=>r.thru).sort((a,b)=>a.toPar-b.toPar||b.thru-a.thru),holes:G.pars.length}}
+function openShare(src){
+  SH={src,prev:view,size:'9x16',theme:src.kind==='gresult'?'clean':'photo',photo:null,name:src.name||getLastName()||'',stats:true,url:null,busy:false};
+  view='share';render();shareDraw();window.scrollTo({top:0});
+}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+async function fontsReady(){try{await Promise.all(['700 60px "Bai Jamjuree"','600 40px "IBM Plex Mono"','500 30px "IBM Plex Sans Thai"','600 30px "IBM Plex Sans Thai"'].map(f=>document.fonts.load(f)));}catch(e){}}
+function imgFrom(src){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=src;})}
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+function coverDraw(c,im,x,y,w,h){const s=Math.max(w/im.width,h/im.height),iw=im.width*s,ih=im.height*s;c.drawImage(im,x+(w-iw)/2,y+(h-ih)/2,iw,ih);}
+function mark(c,v,par,x,y,r,dark){
+  c.textAlign='center';c.textBaseline='middle';
+  if(v==null){c.fillStyle=dark?'rgba(255,255,255,.35)':CARD.line;c.font=`600 ${r*1.1}px "IBM Plex Mono",monospace`;c.fillText('–',x,y+1);return}
+  const d=v-par;c.lineWidth=Math.max(3,r*0.12);
+  const col=d<=-2?CARD.eagle:d===-1?CARD.birdie:d===1?CARD.bogey:d>=2?CARD.dbl:(dark?'#fff':CARD.ink);
+  if(d<=-1){c.fillStyle=d<=-2?CARD.eagle:CARD.birdie;c.beginPath();c.arc(x,y,r,0,7);c.fill();
+    if(d<=-2){c.strokeStyle=CARD.eagle;c.beginPath();c.arc(x,y,r+r*0.28,0,7);c.stroke();}}
+  else if(d>=1){c.strokeStyle=col;c.strokeRect(x-r,y-r,r*2,r*2);if(d>=2)c.strokeRect(x-r-r*0.28,y-r-r*0.28,r*2.56,r*2.56);}
+  c.fillStyle=d<=-1?'#fff':col;c.font=`600 ${r*1.15}px "IBM Plex Mono",monospace`;c.fillText(String(v),x,y+2);
+}
+function logo(c,x,y,s,light){
+  c.save();rr(c,x,y,s*4.2,s*1.3,s*0.35);c.fillStyle=light?'rgba(255,255,255,.92)':CARD.green;c.fill();
+  c.textBaseline='middle';c.textAlign='left';c.font=`700 ${s*0.78}px "Bai Jamjuree",sans-serif`;
+  c.fillStyle=light?CARD.ink:'#fff';c.fillText('Par',x+s*0.85,y+s*0.68);const w=c.measureText('Par').width;
+  c.fillStyle=light?CARD.green:'#7dffae';c.fillText('Live',x+s*0.85+w,y+s*0.68);
+  c.fillStyle='#22c55e';c.beginPath();c.arc(x+s*0.45,y+s*0.65,s*0.17,0,7);c.fill();c.restore();
+}
+function cardSum(src){const n=src.vals.filter(v=>v!=null).length,g=src.vals.reduce((a,v)=>a+(v||0),0),par=src.pars.reduce((a,p,i)=>a+(src.vals[i]!=null?p:0),0);
+  const bird=src.vals.filter((v,i)=>v!=null&&v-src.pars[i]<=-1).length;return{n,g,toP:g-par,bird}}
+function statLine(src){const s=cardSum(src),out=[];if(s.bird)out.push(`🐦 ${s.bird} เบอร์ดี้`);if(src.putts)out.push(`พัตต์ ${src.putts}`);
+  if(src.fir!=null)out.push(`แฟร์เวย์ ${src.fir}%`);if(src.gir!=null)out.push(`GIR ${src.gir}%`);return out.slice(0,3)}
+function scoreColumns(c,src,x,y,w,h,dark){
+  const N=src.pars.length,cols=N>9?2:1,rows=Math.min(9,N),head=h*0.11,foot=h*0.17,rowH=(h-head-foot)/rows,cw=w/cols;
+  const segs=cols===2?[[0,9,'OUT'],[9,18,'IN']]:[[0,N,src.start?'IN':'OUT']];
+  segs.forEach(([a,b,l],k)=>{const cx=x+cw*k+cw/2;let sub=0;for(let i=a;i<b;i++)sub+=src.vals[i]||0;
+    c.textAlign='center';c.textBaseline='middle';c.fillStyle=dark?'rgba(255,255,255,.75)':CARD.muted;c.font=`600 ${head*0.32}px "IBM Plex Sans Thai",sans-serif`;c.fillText(l,cx,y+head*0.28);
+    c.fillStyle=dark?'#fff':CARD.ink;c.font=`600 ${Math.min(head*0.5,cw*0.32)}px "IBM Plex Mono",monospace`;c.fillText(sub?String(sub):'–',cx,y+head*0.72);
+    for(let i=a;i<b;i++)mark(c,src.vals[i],src.pars[i],cx,y+head+rowH*(i-a)+rowH/2,Math.min(rowH*0.34,cw*0.26),dark);});
+  c.strokeStyle=dark?'rgba(255,255,255,.25)':CARD.line;c.lineWidth=2;c.beginPath();c.moveTo(x+w*0.08,y+head);c.lineTo(x+w*0.92,y+head);c.stroke();
+  const s=cardSum(src),fy=y+h-foot;rr(c,x+w*0.04,fy+foot*0.12,w*0.92,foot*0.8,foot*0.16);c.fillStyle=dark?'rgba(255,255,255,.14)':'#e9f5ec';c.fill();
+  c.textAlign='left';c.fillStyle=dark?'rgba(255,255,255,.8)':CARD.muted;c.font=`600 ${Math.min(foot*0.17,w*0.07)}px "IBM Plex Sans Thai",sans-serif`;c.fillText('TOTAL',x+w*0.1,fy+foot*0.32);
+  c.textAlign='right';c.fillStyle=dark?'#fff':CARD.ink;c.font=`600 ${Math.min(foot*0.36,w*0.15)}px "IBM Plex Mono",monospace`;
+  c.fillText(s.n?`${s.g} (${toPar(s.toP)})`:'–',x+w*0.9,fy+foot*0.62);
+}
+function metaBlock(c,src,name,x,y,size,color){
+  c.textAlign='left';c.textBaseline='alphabetic';c.fillStyle=color;
+  if(name){c.font=`700 ${size*1.25}px "Bai Jamjuree",sans-serif`;c.fillText(name,x,y);y+=size*1.15;}
+  c.font=`600 ${size*0.82}px "IBM Plex Sans Thai",sans-serif`;c.fillText('⛳ '+src.course,x,y);y+=size*1.0;
+  c.font=`500 ${size*0.7}px "IBM Plex Sans Thai",sans-serif`;c.globalAlpha=.85;c.fillText('📅 '+fmtDate(src.date),x,y);c.globalAlpha=1;return y;
+}
+async function drawPhoto(c,W,H,src){
+  if(SH.photo){coverDraw(c,SH.photo,0,0,W,H);}else{const g=c.createLinearGradient(0,0,W,H);g.addColorStop(0,'#2b8c50');g.addColorStop(1,'#0d3a22');c.fillStyle=g;c.fillRect(0,0,W,H);
+    c.globalAlpha=.08;c.fillStyle='#fff';for(let i=0;i<14;i++){c.beginPath();c.arc(W*0.15+i*W*0.07,H*0.88,W*0.5,0,7);c.fill();}c.globalAlpha=1;}
+  const pw=W*0.33,px=W-pw-W*0.04,py=H*0.05,ph=H*0.9;
+  c.save();c.shadowColor='rgba(0,0,0,.25)';c.shadowBlur=30;rr(c,px,py,pw,ph,40);c.fillStyle=CARD.glass;c.fill();c.restore();
+  scoreColumns(c,src,px,py+ph*0.02,pw,ph*0.96,false);
+  const sh=c.createLinearGradient(0,H*0.55,0,H);sh.addColorStop(0,'rgba(0,0,0,0)');sh.addColorStop(1,'rgba(0,0,0,.65)');c.fillStyle=sh;c.fillRect(0,H*0.55,px-10,H*0.45);
+  const tall=H/W>1.5,ms=tall?W*0.052:W*0.045;
+  logo(c,W*0.05,H*0.035,tall?W*0.065:W*0.05,true);
+  let y=metaBlock(c,src,SH.name,W*0.05,tall?H*0.76:H*0.72,ms,'#fff');
+  if(SH.stats){const st=statLine(src),fs=tall?W*0.036:W*0.03;c.font=`600 ${fs}px "IBM Plex Sans Thai",sans-serif`;c.fillStyle='#fff';const avail=px-W*0.08;
+    if(c.measureText(st.join('  ·  ')).width<=avail)c.fillText(st.join('  ·  '),W*0.05,y+W*0.055);else st.forEach((t,k)=>c.fillText(t,W*0.05,y+W*0.055+k*fs*1.35));}
+}
+async function drawClean(c,W,H,src){
+  c.fillStyle='#f4f8f2';c.fillRect(0,0,W,H);
+  logo(c,W*0.06,H*0.045,W*0.045,false);
+  let y=metaBlock(c,src,SH.name,W*0.06,H*0.16+W*0.04,W*0.05,CARD.ink);
+  const s=cardSum(src);c.textAlign='center';c.textBaseline='alphabetic';
+  const cy=y+H*0.17;c.fillStyle=CARD.ink;c.font=`700 ${H*0.15}px "Bai Jamjuree",sans-serif`;c.fillText(s.n?String(s.g):'–',W/2,cy);
+  c.font=`600 ${H*0.04}px "IBM Plex Mono",monospace`;c.fillStyle=s.toP<0?CARD.birdie:s.toP>0?CARD.bogey:CARD.ink;c.fillText(s.n?toPar(s.toP)+' เทียบพาร์':'',W/2,cy+H*0.055);
+  const N=src.pars.length,rowsN=N>9?2:1,gx=W*0.06,gw=W*0.88,cell=gw/10,gy=cy+H*0.1;
+  for(let r=0;r<rowsN;r++){const a=r*9,b=Math.min(N,a+9),yy=gy+r*cell*2.1;let sub=0;
+    c.fillStyle='#fff';rr(c,gx,yy,gw,cell*1.75,cell*0.3);c.fill();
+    for(let i=a;i<b;i++){const xx=gx+cell*(i-a)+cell/2;c.fillStyle=CARD.muted;c.textAlign='center';c.font=`500 ${cell*0.26}px "IBM Plex Mono",monospace`;c.fillText(String(i+1+src.start),xx,yy+cell*0.42);
+      mark(c,src.vals[i],src.pars[i],xx,yy+cell*1.1,cell*0.3,false);sub+=src.vals[i]||0;}
+    c.fillStyle=CARD.green;c.font=`700 ${cell*0.3}px "IBM Plex Mono",monospace`;c.textAlign='center';c.fillText(rowsN===2?(r?'IN':'OUT'):'รวม',gx+cell*9.5,yy+cell*0.5);c.fillStyle=CARD.ink;c.font=`600 ${cell*0.45}px "IBM Plex Mono",monospace`;c.fillText(sub?String(sub):'–',gx+cell*9.5,yy+cell*1.15);}
+  if(SH.stats){const st=statLine(src),sy=gy+rowsN*cell*2.1+H*0.03;c.font=`600 ${W*0.035}px "IBM Plex Sans Thai",sans-serif`;c.fillStyle=CARD.ink;c.textAlign='center';c.fillText(st.join('  ·  '),W/2,Math.min(sy+W*0.03,H*0.96));}
+}
+function svgFix(svg,w,h){const cs=getComputedStyle(document.documentElement);
+  return svg.replace('<svg ',`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" `).replace(/var\(--([\w-]+)\)/g,(m,n)=>cs.getPropertyValue('--'+n).trim()||'#888').replace(/ id=""/g,'');}
+function bestRouteHole(r){let best=-1,bd=99;r.scores.forEach((x,i)=>{if(!(x.shots||[]).length&&!x.holed)return;const d=(x.s??99)-r.pars[i];if(d<bd){bd=d;best=i;}});return best}
+async function drawRoute(c,W,H,src){
+  const r=src.round,i=bestRouteHole(r);if(i<0)return drawClean(c,W,H,src);
+  c.fillStyle='#0f2a1b';c.fillRect(0,0,W,H);
+  const info=holeInfo(r,i),mh=H*(SH.size==='9x16'?0.6:0.5),mw=Math.min(W*0.84,mh*info.ar),mx=(W-mw)/2,my=H*0.09,h2=mw/info.ar;
+  c.save();rr(c,mx,my,mw,h2,30);c.clip();
+  try{let bg=null;if(info.imgDoc){const d=imgCache[info.imgDoc]||bakedImgs[info.imgDoc];if(d&&d!=='missing')bg=await imgFrom(d);}
+    if(!bg)bg=await imgFrom('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgFix(schematicSVG(info),1000,1000/info.ar)));
+    c.drawImage(bg,mx,my,mw,h2);
+    const ov=await imgFrom('data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgFix(overlaySVG(r,i,info),1000,1000/info.ar)));c.drawImage(ov,mx,my,mw,h2);}catch(e){console.error(e)}
+  c.restore();
+  const d=(r.scores[i].s??0)-r.pars[i];c.textAlign='left';c.fillStyle='#fff';c.font=`700 ${W*0.05}px "Bai Jamjuree",sans-serif`;
+  c.font=`700 ${W*0.065}px "Bai Jamjuree",sans-serif`;c.fillText(`หลุม ${info.num} · ${diffName(d)}`,mx,my+h2+W*0.09);
+  logo(c,W*0.06,H*0.025,W*0.06,true);
+  const s=cardSum(src);let y=metaBlock(c,src,SH.name,mx,my+h2+W*0.19,W*0.05,'#fff');
+  c.textAlign='right';c.font=`700 ${W*0.11}px "Bai Jamjuree",sans-serif`;c.fillStyle='#fff';c.fillText(s.n?String(s.g):'–',mx+mw,my+h2+W*0.11);
+  c.font=`600 ${W*0.04}px "IBM Plex Mono",monospace`;c.fillStyle=s.toP<0?'#7dffae':s.toP>0?'#ffb066':'#fff';c.fillText(s.n?toPar(s.toP):'',mx+mw,my+h2+W*0.165);
+  if(SH.stats){c.textAlign='left';c.fillStyle='#fff';c.font=`600 ${W*0.036}px "IBM Plex Sans Thai",sans-serif`;c.fillText(statLine(src).join('  ·  '),mx,Math.min(y+W*0.08,H*0.97));}
+}
+async function drawResult(c,W,H,src){
+  const g=c.createLinearGradient(0,0,0,H);g.addColorStop(0,'#1d6a43');g.addColorStop(1,'#0d3a22');c.fillStyle=g;c.fillRect(0,0,W,H);
+  logo(c,W*0.06,H*0.04,W*0.045,true);
+  c.textAlign='left';c.fillStyle='#fff';c.font=`700 ${W*0.07}px "Bai Jamjuree",sans-serif`;c.fillText('ผลก๊วน',W*0.06,H*0.15+W*0.04);
+  c.font=`600 ${W*0.04}px "IBM Plex Sans Thai",sans-serif`;c.fillText('⛳ '+src.course,W*0.06,H*0.15+W*0.11);
+  c.globalAlpha=.85;c.font=`500 ${W*0.034}px "IBM Plex Sans Thai",sans-serif`;c.fillText('📅 '+fmtDate(src.date),W*0.06,H*0.15+W*0.165);c.globalAlpha=1;
+  const rows=src.rows.slice(0,10),top=H*0.15+W*0.23,rowH=Math.min(W*0.13,(H*0.95-top)/Math.max(rows.length,1));
+  rows.forEach((r,k)=>{const y=top+k*rowH,first=k===0;rr(c,W*0.06,y,W*0.88,rowH*0.86,rowH*0.2);c.fillStyle=first?'#f2c230':k<3?'rgba(255,255,255,.95)':'rgba(255,255,255,.14)';c.fill();
+    const ink=k<3?CARD.ink:'#fff';c.textBaseline='middle';c.fillStyle=ink;c.textAlign='left';
+    c.font=`700 ${rowH*0.38}px "Bai Jamjuree",sans-serif`;c.fillText(k<3?['🥇','🥈','🥉'][k]:String(k+1),W*0.09,y+rowH*0.43);
+    c.font=`600 ${rowH*0.32}px "IBM Plex Sans Thai",sans-serif`;c.fillText(r.p.name,W*0.2,y+rowH*0.43);
+    c.textAlign='right';c.font=`600 ${rowH*0.36}px "IBM Plex Mono",monospace`;c.fillText(`${r.g} (${toPar(r.toPar)})`,W*0.9,y+rowH*0.43);
+    if(r.thru<src.holes){c.font=`500 ${rowH*0.2}px "IBM Plex Sans Thai",sans-serif`;c.globalAlpha=.7;c.fillText(`${r.thru} หลุม`,W*0.9,y+rowH*0.72);c.globalAlpha=1;}});
+  c.textBaseline='alphabetic';
+}
+async function shareDraw(){
+  if(!SH)return;const my=SH;my.busy=true;if(view==='share')render();
+  await fontsReady();
+  const [W,H]=SIZES[my.size],cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');
+  try{if(my.src.kind==='gresult')await drawResult(c,W,H,my.src);else if(my.theme==='photo')await drawPhoto(c,W,H,my.src);else if(my.theme==='route')await drawRoute(c,W,H,my.src);else await drawClean(c,W,H,my.src);}
+  catch(e){console.error(e);}
+  cv.toBlob(b=>{if(SH!==my)return;if(my.url)URL.revokeObjectURL(my.url);my.blob=b;my.url=URL.createObjectURL(b);my.busy=false;if(view==='share')render();},'image/png');
+}
+function shareView(){
+  const s=SH,src=s.src,canRoute=src.kind==='round'&&bestRouteHole(src.round)>=0;
+  return `<div class="top"><button class="btn" data-act="shback">‹ กลับ</button></div>
+  <div><div class="label">แชร์ลงโซเชียล</div><h1>${src.kind==='gresult'?'การ์ดผลก๊วน':'การ์ดโชว์สกอร์'}</h1></div>
+  <div class="shprev ${s.size}">${s.url?`<img src="${s.url}" alt="ตัวอย่างการ์ด">`:''}${s.busy?'<div class="shbusy">กำลังสร้างรูป…</div>':''}</div>
+  <div class="muted" style="font-size:.8rem;text-align:center">กดค้างที่รูปเพื่อบันทึกลงอัลบั้มได้เช่นกัน</div>
+  <div class="row"><button class="btn primary" data-act="shshare" ${s.url?'':'disabled'}>แชร์</button><button class="btn" data-act="shsave" ${s.url?'':'disabled'}>บันทึกรูป</button></div>
+  <div class="panel">
+    <div class="field"><span class="label">ขนาด</span><div class="seg">${[['9x16','Story 9:16'],['4x5','โพสต์ 4:5'],['1x1','จัตุรัส']].map(([k,l])=>`<button data-act="shsize" data-v="${k}" aria-pressed="${s.size===k}">${l}</button>`).join('')}</div></div>
+    ${src.kind==='gresult'?'':`<div class="field"><span class="label">ธีม</span><div class="seg">${[['photo','รูปเต็ม'],['clean','คลีน']].concat(canRoute?[['route','เส้นทางลูก']]:[]).map(([k,l])=>`<button data-act="shtheme" data-v="${k}" aria-pressed="${s.theme===k}">${l}</button>`).join('')}</div></div>
+    ${s.theme==='photo'?`<div class="row"><button class="btn" data-act="shphoto">${s.photo?'เปลี่ยนรูป':'เลือกรูปของคุณ'}</button>${s.photo?'<button class="btn" data-act="shnophoto">ไม่ใช้รูป</button>':''}</div><input type="file" id="shfile" accept="image/*" hidden>`:''}
+    <div class="field"><label class="label" for="shname">ชื่อที่แสดง</label><input id="shname" class="cin" maxlength="30" value="${esc(s.name)}" placeholder="เว้นว่างได้"></div>
+    <label class="optin"><input type="checkbox" id="shstats" ${s.stats?'checked':''}><span>โชว์สถิติ (เบอร์ดี้ พัตต์ แฟร์เวย์)</span></label>`}
+  </div>`;
+}
+async function shareShare(){
+  const s=SH;if(!s||!s.blob)return;const f=new File([s.blob],`parlive-${s.src.date||'card'}.png`,{type:'image/png'});
+  const text=s.src.kind==='gresult'?`ผลก๊วน ${s.src.course} · ParLive`:`${s.src.course} · ${cardSum(s.src).g} (${toPar(cardSum(s.src).toP)}) · ParLive`;
+  try{if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],text});return}}catch(e){if(e&&e.name==='AbortError')return}
+  shareSave();toast('มือถือนี้แชร์ตรงไม่ได้ บันทึกรูปแล้วโพสต์เองได้เลย');
+}
+function shareSave(){const s=SH;if(!s||!s.url)return;const a=document.createElement('a');a.href=s.url;a.download=`parlive-${s.src.date||'card'}.png`;document.body.appendChild(a);a.click();a.remove();}
+function shareClick(a,b){
+  if(view!=='share'||!SH)return false;
+  if(a==='shback'){view=SH.prev;SH=null;render();return true}
+  if(a==='shshare'){shareShare();return true}
+  if(a==='shsave'){shareSave();return true}
+  if(a==='shsize'){SH.size=b.dataset.v;shareDraw();return true}
+  if(a==='shtheme'){SH.theme=b.dataset.v;shareDraw();return true}
+  if(a==='shphoto'){document.getElementById('shfile').click();return true}
+  if(a==='shnophoto'){SH.photo=null;shareDraw();return true}
+  return false;
+}
+async function sharePhoto(file){
+  try{const url=URL.createObjectURL(file);const im=await imgFrom(url);
+    const sc=Math.min(1,2200/Math.max(im.width,im.height)),cv=document.createElement('canvas');cv.width=im.width*sc;cv.height=im.height*sc;cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);URL.revokeObjectURL(url);
+    SH.photo=cv;shareDraw();}catch(e){toast('เปิดรูปนี้ไม่ได้ ลองถ่ายหน้าจอรูปแล้วใช้ภาพหน้าจอแทน');}
+}
+
 /* ---------- ก๊วน: shared live scoring ----------
    g/<CODE>            group: course, pars, players[{id,name,hcp}]
    groups/<CODE>/scores/<pid>  one doc per player: h.<hole>.<enteredBy> = strokes, sig.<who> = time
@@ -1381,6 +1560,7 @@ function gBoardView(){
     h+=`<div class="br ${r.p.id===gMe?'me':''}"><span class="num">${r.thru?rank:'–'}</span><span class="t">${esc(r.p.name)}${r.conf?` <span class="chip bad sm">ไม่ตรง ${r.conf}</span>`:''}${r.sig.includes(r.p.id)?' <span class="chip ok sm">ยืนยันแล้ว</span>':''}</span>
       <span class="num">${r.thru}</span><span class="num b">${r.thru?r.g:'–'}</span><span class="num b ${r.thru?scCls(Math.sign(r.toPar)*Math.min(Math.abs(r.toPar),2)):''}">${r.thru?toPar(r.toPar):'–'}</span>${anyH?`<span class="num">${r.thru&&r.hcp?r.net:'–'}</span>`:''}</div>`;});
   h+=`</div>${anyH?'<div class="muted" style="font-size:.78rem">Net = สกอร์รวม − แฮนดิแคปตามสัดส่วนหลุมที่เล่น (ต้นแบบนี้ยังไม่ใช้ Stroke Index ของแต่ละหลุม)</div>':''}</div>`;
+  if(rows.some(r=>r.thru))h+=`<button class="btn full" data-act="gresultcard">การ์ดผลก๊วน (แชร์ลง LINE / โซเชียล)</button>`;
   if(G.owner===gdb.uid()&&!G.ended&&!gAllDone()&&gThru()>0)h+=`<button class="btn full" data-act="gend">จบรอบ</button>`;
   if(gMe&&gMe!=='watch'){
     const me=rows.find(r=>r.p.id===gMe);
@@ -1388,7 +1568,7 @@ function gBoardView(){
       h+=`<div class="panel"><h2>สกอร์การ์ดของคุณ</h2>
         <div class="muted" style="font-size:.88rem">${!allDone?`ยังขาดอีก ${G.pars.length-me.thru} หลุม`:me.conf?`มี ${me.conf} หลุมที่ค่ายังไม่ตรงกัน คุยกับเพื่อนแล้วแก้ให้ตรงก่อน`:signed?'คุณยืนยันสกอร์การ์ดแล้ว ถ้ามีการแก้สกอร์ การยืนยันจะถูกยกเลิก':'สกอร์ครบและตรงกันทุกหลุมแล้ว'}</div>
         ${ok&&!signed&&!gRO?`<button class="btn primary full" data-act="gsign" data-p="${gMe}">ยืนยันสกอร์การ์ดของฉัน</button>`:''}
-        ${me.thru?`<button class="btn full" data-act="gsave">บันทึกเป็นรอบของฉัน</button>`:''}</div>`;
+        ${me.thru?`<button class="btn primary full" data-act="gsharecard">สร้างการ์ดโชว์สกอร์ของฉัน</button><button class="btn full" data-act="gsave">บันทึกเป็นรอบของฉัน</button>`:''}</div>`;
       const others=rows.filter(r=>r.p.id!==gMe&&r.thru===G.pars.length&&!r.conf&&!r.sig.includes(gMe));
       if(others.length&&!gRO)h+=`<div class="panel"><h2>เซ็นรับรองให้เพื่อน</h2>${others.map(r=>`<button class="btn full" data-act="gsign" data-p="${r.p.id}">รับรองสกอร์การ์ดของ ${esc(r.p.name)} (${r.g})</button>`).join('')}</div>`;
     }
@@ -1480,6 +1660,9 @@ function readSetupFields(){const c=document.getElementById('course'),d=document.
 app.addEventListener('keydown',e=>{if(e.target&&e.target.id==='chatin'&&e.key==='Enter'&&!e.isComposing){e.preventDefault();chatSend(e.target.value);}});
 app.addEventListener('change',e=>{
   const el=e.target;
+  if(view==='share'&&SH){if(el.id==='shfile'&&el.files&&el.files[0]){sharePhoto(el.files[0]);el.value='';return}
+    if(el.id==='shstats'){SH.stats=el.checked;shareDraw();return}
+    if(el.id==='shname'){SH.name=el.value.trim().slice(0,30);if(SH.name)setLastName(SH.name);shareDraw();return}}
   if(el.id==='chatmute'&&G){lsSet(chatMuteKey(),el.checked?'1':'');return}
   if(view==='setup'&&el.id==='course'){readSetupFields();setup.pars=parsFor(setup.course,setup.holes,setup.start);render();return}
   if(view!=='play'||!cur)return;
@@ -1515,6 +1698,10 @@ app.addEventListener('click',e=>{
   }
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='new')return newRound();
+  if(shareClick(a,b))return;
+  if(a==='sharecard'&&cur){openShare(srcFromRound(cur));return}
+  if(a==='gsharecard'&&G&&gMe){openShare(srcFromGroup(gMe));return}
+  if(a==='gresultcard'&&G){openShare(srcGroupResult());return}
   if(eClick(a,b))return;
   if(gClick(a,b))return;
   if(a==='home'){gStop();eStop();E=null;G=null;view='home';cur=null;confirmDel=false;return render();}
