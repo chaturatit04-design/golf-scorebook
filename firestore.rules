@@ -9,6 +9,12 @@ service cloud.firestore {
     function groupOf(code) {
       return get(/databases/$(database)/documents/groups/$(code)).data;
     }
+    function isOwner(code) {
+      return request.auth != null && groupOf(code).owner == request.auth.uid;
+    }
+    function isOpen(code) {
+      return groupOf(code).get('archived', false) != true;
+    }
 
     match /groups/{code} {
       allow get: if true;
@@ -21,14 +27,17 @@ service cloud.firestore {
         || (isMember(code)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['last','thru'])
           && request.resource.data.last == request.time));
+      allow delete: if request.auth != null && resource.data.owner == request.auth.uid;
 
       match /scores/{pid} {
         allow read: if true;
-        allow write: if isMember(code);
+        allow create, update: if isMember(code) && isOpen(code);
+        allow delete: if isOwner(code);
       }
 
       match /members/{uid} {
-        allow read: if request.auth != null && request.auth.uid == uid;
+        allow read: if request.auth != null && (request.auth.uid == uid || isOwner(code));
+        allow delete: if isOwner(code);
         allow create: if request.auth != null && request.auth.uid == uid
           && request.resource.data.k ==
              get(/databases/$(database)/documents/groupKeys/$(code)).data.k;
@@ -48,7 +57,8 @@ service cloud.firestore {
           && request.resource.data.at == request.time
           && (request.resource.data.role == 'v'
               || (request.resource.data.role == 'p' && isMember(code)))
-          && groupOf(code).get('chatLocked', false) != true;
+          && groupOf(code).get('chatLocked', false) != true
+          && isOpen(code);
         allow delete: if request.auth != null
           && (resource.data.uid == request.auth.uid
               || groupOf(code).owner == request.auth.uid);
@@ -56,23 +66,24 @@ service cloud.firestore {
 
       match /watch/{uid} {
         allow read: if true;
-        allow write: if request.auth != null && request.auth.uid == uid
-          && request.resource.data.keys().hasOnly(['at'])
+        allow create, update: if request.auth != null && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['at','exp'])
           && request.resource.data.at == request.time;
+        allow delete: if (request.auth != null && request.auth.uid == uid) || isOwner(code);
       }
     }
 
     match /groupKeys/{code} {
       allow read: if false;
-      allow create: if request.auth != null
-        && groupOf(code).owner == request.auth.uid;
+      allow create, delete: if isOwner(code);
     }
 
     match /live/{code} {
       allow read: if true;
       allow create, update: if isMember(code)
         && groupOf(code).get('public', false) == true
-        && request.resource.data.keys().hasOnly(['course','date','n','thru','ended','lead','leadPar','last'])
+        && isOpen(code)
+        && request.resource.data.keys().hasOnly(['course','date','n','thru','ended','lead','leadPar','last','exp'])
         && request.resource.data.last == request.time;
       allow delete: if request.auth != null
         && groupOf(code).owner == request.auth.uid;
