@@ -564,6 +564,10 @@ async function uploadHoleImage(file){
 
 /* ---------- views ---------- */
 function render(){
+  try{renderInner();}catch(e){console.error(e);
+    app.innerHTML=`<div class="notice"><b>หน้านี้แสดงผลไม่ได้</b><br><span class="muted" style="font-size:.8rem">${esc(e&&e.message||'')}</span></div><button class="btn primary full" data-act="home">กลับหน้าหลัก</button>`;}
+}
+function renderInner(){
   if(!store)return;
   const ci=document.getElementById('chatin'),cv=ci?ci.value:null,cf=ci&&document.activeElement===ci;
   const cl=document.getElementById('chatlist'),nearBottom=!cl||cl.scrollHeight-cl.scrollTop-cl.clientHeight<60,prevTop=cl?cl.scrollTop:0;
@@ -583,7 +587,7 @@ function render(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.13-f';
+const APPV='2026.10.13-g';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1228,7 +1232,7 @@ async function fontsReady(){try{await Promise.all(['700 60px "Bai Jamjuree"','60
 function imgFrom(src){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=src;})}
 function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
 function coverDraw(c,im,x,y,w,h){const s=Math.max(w/im.width,h/im.height),iw=im.width*s,ih=im.height*s;c.drawImage(im,x+(w-iw)/2,y+(h-ih)/2,iw,ih);}
-function mark(c,v,par,x,y,r,dark){
+function cmark(c,v,par,x,y,r,dark){
   c.textAlign='center';c.textBaseline='middle';
   if(v==null){c.fillStyle=dark?'rgba(255,255,255,.35)':CARD.line;c.font=`600 ${r*1.1}px "IBM Plex Mono",monospace`;c.fillText('–',x,y+1);return}
   const d=v-par;c.lineWidth=Math.max(3,r*0.12);
@@ -1255,7 +1259,7 @@ function scoreColumns(c,src,x,y,w,h,dark){
   segs.forEach(([a,b,l],k)=>{const cx=x+cw*k+cw/2;let sub=0;for(let i=a;i<b;i++)sub+=src.vals[i]||0;
     c.textAlign='center';c.textBaseline='middle';c.fillStyle=dark?'rgba(255,255,255,.75)':CARD.muted;c.font=`600 ${head*0.32}px "IBM Plex Sans Thai",sans-serif`;c.fillText(l,cx,y+head*0.28);
     c.fillStyle=dark?'#fff':CARD.ink;c.font=`600 ${Math.min(head*0.5,cw*0.32)}px "IBM Plex Mono",monospace`;c.fillText(sub?String(sub):'–',cx,y+head*0.72);
-    for(let i=a;i<b;i++)mark(c,src.vals[i],src.pars[i],cx,y+head+rowH*(i-a)+rowH/2,Math.min(rowH*0.34,cw*0.26),dark);});
+    for(let i=a;i<b;i++)cmark(c,src.vals[i],src.pars[i],cx,y+head+rowH*(i-a)+rowH/2,Math.min(rowH*0.34,cw*0.26),dark);});
   c.strokeStyle=dark?'rgba(255,255,255,.25)':CARD.line;c.lineWidth=2;c.beginPath();c.moveTo(x+w*0.08,y+head);c.lineTo(x+w*0.92,y+head);c.stroke();
   const s=cardSum(src),fy=y+h-foot;rr(c,x+w*0.04,fy+foot*0.12,w*0.92,foot*0.8,foot*0.16);c.fillStyle=dark?'rgba(255,255,255,.14)':'#e9f5ec';c.fill();
   c.textAlign='left';c.fillStyle=dark?'rgba(255,255,255,.8)':CARD.muted;c.font=`600 ${Math.min(foot*0.17,w*0.07)}px "IBM Plex Sans Thai",sans-serif`;c.fillText('TOTAL',x+w*0.1,fy+foot*0.32);
@@ -1292,7 +1296,7 @@ async function drawClean(c,W,H,src){
   for(let r=0;r<rowsN;r++){const a=r*9,b=Math.min(N,a+9),yy=gy+r*cell*2.1;let sub=0;
     c.fillStyle='#fff';rr(c,gx,yy,gw,cell*1.75,cell*0.3);c.fill();
     for(let i=a;i<b;i++){const xx=gx+cell*(i-a)+cell/2;c.fillStyle=CARD.muted;c.textAlign='center';c.font=`500 ${cell*0.26}px "IBM Plex Mono",monospace`;c.fillText(String(i+1+src.start),xx,yy+cell*0.42);
-      mark(c,src.vals[i],src.pars[i],xx,yy+cell*1.1,cell*0.3,false);sub+=src.vals[i]||0;}
+      cmark(c,src.vals[i],src.pars[i],xx,yy+cell*1.1,cell*0.3,false);sub+=src.vals[i]||0;}
     c.fillStyle=CARD.green;c.font=`700 ${cell*0.3}px "IBM Plex Mono",monospace`;c.textAlign='center';c.fillText(rowsN===2?(r?'IN':'OUT'):'รวม',gx+cell*9.5,yy+cell*0.5);c.fillStyle=CARD.ink;c.font=`600 ${cell*0.45}px "IBM Plex Mono",monospace`;c.fillText(sub?String(sub):'–',gx+cell*9.5,yy+cell*1.15);}
   if(SH.stats){const st=statLine(src),sy=gy+rowsN*cell*2.1+H*0.03;c.font=`600 ${W*0.035}px "IBM Plex Sans Thai",sans-serif`;c.fillStyle=CARD.ink;c.textAlign='center';c.fillText(st.join('  ·  '),W/2,Math.min(sy+W*0.03,H*0.96));}
 }
