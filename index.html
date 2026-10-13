@@ -181,6 +181,23 @@ table.sc{border-collapse:collapse;font-family:var(--f-num);font-size:.82rem;min-
 .sw{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid var(--line)}
 .sw.ok{background:var(--surface)} .sw.pending{background:var(--surface);opacity:.5} .sw.conflict{background:var(--bogey-bg)}
 .linkbox{font-size:.78rem;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--line);overflow-wrap:anywhere;user-select:all}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row2 .field{min-width:0}
+textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);width:100%;resize:vertical}
+.estat{border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:2px;border:1px solid var(--line);background:var(--surface)}
+.estat .et{font-family:var(--f-display);font-weight:700;font-size:1.25rem}
+.estat .es{font-size:.88rem;color:var(--muted)}
+.estat.ok{background:var(--birdie-bg);border-color:var(--birdie)} .estat.ok .et{color:var(--birdie)}
+.estat.bad{background:var(--bogey-bg);border-color:var(--dbl)} .estat.bad .et{color:var(--dbl)}
+.estat.open .et{color:var(--accent)}
+.enote{white-space:pre-wrap;overflow-wrap:anywhere}
+.seats{display:flex;flex-direction:column}
+.seat{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 2px;border-bottom:1px solid var(--line)}
+.seat:last-child{border-bottom:0}
+.seat .t{font-weight:600;overflow-wrap:anywhere}
+.seat.me{background:var(--soft);border-radius:8px}
+.seat.empty{opacity:.6}
+.orgp{border-style:dashed}
 </style>
 </head><body>
 
@@ -513,6 +530,9 @@ function render(){
   else if(view==='groups')app.innerHTML=groupsView();
   else if(view==='gnew')app.innerHTML=gNewView();
   else if(view==='group')app.innerHTML=groupView();
+  else if(view==='events')app.innerHTML=eventsView();
+  else if(view==='enew')app.innerHTML=eFormView();
+  else if(view==='event')app.innerHTML=eventView();
   if(view==='play'){const c=app.querySelector('.holebar .cur');if(c)c.scrollIntoView({inline:'center',block:'nearest'});}
 }
 function header(sub){return `<div><div class="label">${sub||'บันทึกทุกช็อต ทุกหลุม'}</div><h1>สมุดสกอร์กอล์ฟ</h1></div>`}
@@ -526,6 +546,7 @@ function homeView(){
     <span class="badge ${relCls(t.strokes-t.par)}">${t.n?toPar(t.strokes-t.par):'–'}</span></div>
     <button class="btn primary full" data-act="resume" data-id="${open.id}">เล่นต่อ</button></div>`;}
   h+=`<button class="btn ${open?'':'primary'} full" data-act="new">เริ่มรอบใหม่</button>`;
+  h+=`<button class="btn full gbtn" data-act="events"><span>นัดออกรอบ</span><span class="muted" style="font-weight:500;font-size:.82rem">ส่งลิงก์ให้เพื่อนลงชื่อ · ปิดรับคืนก่อนวันเล่น 21:00</span></button>`;
   h+=`<button class="btn full gbtn" data-act="groups"><span>ก๊วน · แข่งกับเพื่อน</span><span class="muted" style="font-weight:500;font-size:.82rem">กรอกสกอร์ร่วมกัน ตรวจทาน และดูอันดับสด</span></button>`;
   if(!list.length){
     h+=`<div class="panel empty"><svg viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="58" r="10" fill="var(--soft)"/><line x1="36" y1="58" x2="36" y2="10" stroke="var(--ink)" stroke-width="2.5"/><path d="M36 10 L58 18 L36 26 Z" fill="var(--under)"/></svg>
@@ -775,9 +796,181 @@ async function initFirebase(){
     get:async()=>W(await F.getDoc(r)),
     set:(d,merge)=>F.setDoc(r,d,merge?{merge:true}:{}),
     onSnapshot:(f,e)=>F.onSnapshot(r,s=>f(W(s)),e),
+    del:field=>F.updateDoc(r,{[field]:F.deleteField()}),
     collection:c=>({onSnapshot:(f,e)=>F.onSnapshot(F.collection(fs,p+'/'+c),s=>f({docs:s.docs.map(W)}),e)})}};
   return {doc,authReady,uid:()=>auth.currentUser&&auth.currentUser.uid};
 }
+/* ---------- นัดออกรอบ ----------
+   events/<ID>: owner, course, date, time, cap (2-10), minP, note, openAt, closeAt (21:00 the night before),
+   status open|confirmed|cancelled, changes[], seats.<uid> = {name, hcp, at}.
+   Each device writes only its own seat; only the owner changes anything else (Firestore rules enforce both). */
+let E=null,eUnsub=null,eNew=null,eEdit=null,eTick=null,eConfirmCancel=false;
+const EKEY='golf-events';
+function myEvents(){try{return JSON.parse(localStorage.getItem(EKEY)||'[]')}catch(e){return[]}}
+function rememberEvent(e){const l=myEvents().filter(x=>x.id!==e.id);l.unshift({id:e.id,course:e.course,date:e.date,time:e.time});try{localStorage.setItem(EKEY,JSON.stringify(l.slice(0,30)))}catch(x){}}
+const closeFor=date=>new Date(date+'T21:00:00+07:00').getTime()-86400000;
+const thDate=d=>{try{return new Date(d+'T00:00:00+07:00').toLocaleDateString('th-TH',{weekday:'short',day:'numeric',month:'short',year:'2-digit'})}catch(e){return d}};
+const thDT=ms=>new Date(ms).toLocaleString('th-TH',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+const localInput=ms=>{const d=new Date(ms);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`};
+const eid=()=>{const A='abcdefghijkmnpqrstuvwxyz23456789';let s='';for(let i=0;i<8;i++)s+=A[Math.floor(Math.random()*A.length)];return s};
+function seatList(e){return Object.entries(e.seats||{}).filter(([,v])=>v&&v.name).map(([uid,v])=>Object.assign({uid},v)).sort((a,b)=>(a.at||0)-(b.at||0))}
+function ePhase(e){const now=Date.now();
+  if(e.status==='cancelled')return 'cancelled';if(e.status==='confirmed')return 'confirmed';
+  if(now<e.openAt)return 'soon';if(now<e.closeAt)return 'open';return 'closed';}
+function openEvent(id){
+  if(!gdb){toast('ยังเชื่อมต่อระบบไม่ได้ ลองอีกครั้ง');return}
+  if(eUnsub)eUnsub();E={loading:true,id};eEdit=null;eConfirmCancel=false;view='event';render();
+  eUnsub=gdb.doc('events/'+id).onSnapshot(s=>{
+    E=s.exists?Object.assign({id},JSON.parse(JSON.stringify(s.data()))):{missing:true,id};
+    if(!E.missing)rememberEvent(E);if(view==='event'&&!eEdit)render();
+  },()=>{E={missing:true,id};if(view==='event')render();});
+  clearInterval(eTick);eTick=setInterval(()=>{if(view==='event'&&!eEdit&&E&&!E.loading)render();},30000);
+}
+function eStop(){if(eUnsub)eUnsub();eUnsub=null;clearInterval(eTick);}
+const isOrg=()=>E&&gdb&&E.owner&&E.owner===gdb.uid();
+function eventsView(){
+  let h=`<div class="top"><button class="btn" data-act="home">‹ หน้าหลัก</button></div><div><div class="label">ลงชื่อล่วงหน้า · ปิดรับคืนก่อนวันเล่น 21:00 น.</div><h1>นัดออกรอบ</h1></div>`;
+  if(!gdb)return h+`<div class="notice">${fbErr?'เชื่อมต่อระบบไม่ได้ ตรวจอินเทอร์เน็ตแล้วเปิดหน้านี้ใหม่':'กำลังเชื่อมต่อ…'}</div>`;
+  h+=`<button class="btn primary full" data-act="enew">สร้างนัดใหม่</button>`;
+  const l=myEvents();
+  h+=l.length?`<div class="panel"><h2>นัดที่เคยเปิดดู</h2><div class="list">${l.map(x=>`<button class="item" data-act="eopen" data-id="${esc(x.id)}"><div style="min-width:0"><div class="t">${esc(x.course||'')}</div><div class="muted" style="font-size:.85rem">${thDate(x.date)} · ${esc(x.time||'')} น.</div></div><span></span><span class="muted">›</span></button>`).join('')}</div></div>`
+    :`<div class="panel empty"><h2>ยังไม่มีนัด</h2><p class="muted" style="margin:0">สร้างนัด แล้วส่งลิงก์ลงกลุ่ม LINE ให้เพื่อนลงชื่อเอง ใครลงก่อนได้ก่อนจนครบจำนวน</p></div>`;
+  return h;
+}
+function eFormView(){
+  const f=eNew,names=Object.keys(courses),edit=!!f.id;
+  return `<div class="top"><button class="btn" data-act="${edit?'eeditx':'events'}">‹ ${edit?'กลับ':'นัดออกรอบ'}</button></div><div><div class="label">${edit?'แก้ไข / เลื่อนนัด':'นัดใหม่'}</div><h1>${edit?'แก้ไขนัด':'สร้างนัด'}</h1></div>
+  <div class="panel">
+    <div class="field"><label class="label" for="ecourse">สนาม</label><input id="ecourse" list="ecl" value="${esc(f.course)}" autocomplete="off"><datalist id="ecl">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+    <div class="row2"><div class="field"><label class="label" for="edate">วันที่เล่น</label><input id="edate" type="date" value="${f.date}"></div>
+      <div class="field"><label class="label" for="etime">เวลาทีออฟ</label><input id="etime" type="time" value="${f.time}"></div></div>
+    <div class="row2"><div class="field"><label class="label" for="ecap">รับสูงสุด (คน)</label><select id="ecap">${[...Array(9)].map((_,i)=>i+2).map(n=>`<option ${n===f.cap?'selected':''}>${n}</option>`).join('')}</select></div>
+      <div class="field"><label class="label" for="emin">ขั้นต่ำที่จะออกรอบ</label><select id="emin">${[...Array(9)].map((_,i)=>i+2).map(n=>`<option ${n===f.minP?'selected':''}>${n}</option>`).join('')}</select></div></div>
+    <div class="field"><label class="label" for="eopen">เปิดรับสมัคร</label><input id="eopen" type="datetime-local" value="${localInput(f.openAt)}"></div>
+    <div class="muted" style="font-size:.85rem">ปิดรับสมัครอัตโนมัติ <b>${f.date?thDT(closeFor(f.date)):'–'}</b> (คืนก่อนวันเล่น 21:00 น.)</div>
+    <div class="field"><label class="label" for="enote">หมายเหตุ</label><textarea id="enote" rows="3" placeholder="เช่น กรีนฟี 600 แคดดี้ 400 รถกอล์ฟแชร์กัน นัดเจอหน้าคลับเฮาส์ 06:30">${esc(f.note||'')}</textarea></div>
+    ${edit?'':`<div class="field"><label class="label" for="emyname">ชื่อคุณ (ลงชื่อตัวเองด้วย เว้นว่างถ้าไม่ไป)</label><input id="emyname" value="${esc(f.myName||'')}" autocomplete="off"></div>`}
+  </div>
+  <button class="btn primary full" data-act="${edit?'esave':'ecreate'}">${edit?'บันทึกการเปลี่ยนแปลง':'สร้างนัดและรับลิงก์'}</button>`;
+}
+function readEForm(){const v=id=>{const e=document.getElementById(id);return e?e.value:null};
+  if(v('ecourse')!=null)eNew.course=v('ecourse').trim();if(v('edate'))eNew.date=v('edate');if(v('etime'))eNew.time=v('etime');
+  if(v('ecap'))eNew.cap=+v('ecap');if(v('emin'))eNew.minP=+v('emin');if(v('enote')!=null)eNew.note=v('enote').slice(0,500);
+  if(v('eopen'))eNew.openAt=new Date(v('eopen')).getTime();if(v('emyname')!=null)eNew.myName=v('emyname').trim().slice(0,40);}
+function eValid(f){
+  if(!f.course){toast('ใส่ชื่อสนาม');return false}
+  if(!f.date||!f.time){toast('ใส่วันที่และเวลาทีออฟ');return false}
+  if(f.minP>f.cap){toast('จำนวนขั้นต่ำต้องไม่เกินจำนวนที่รับ');return false}
+  if(closeFor(f.date)<=Date.now()){toast('วันเล่นต้องเลยคืนนี้ 21:00 น. ไปแล้ว ถึงจะเปิดรับสมัครได้');return false}
+  if(f.openAt>=closeFor(f.date)){toast('เวลาเปิดรับต้องก่อนเวลาปิดรับ');return false}
+  return true}
+async function eCreate(){
+  readEForm();const f=eNew;if(!eValid(f))return;
+  const btn=app.querySelector('[data-act="ecreate"]');if(btn){btn.disabled=true;btn.textContent='กำลังสร้าง…';}
+  try{const u=await gdb.authReady;if(!u)throw{code:'auth'};
+    const id=eid();const doc={owner:u.uid,course:f.course,date:f.date,time:f.time,cap:f.cap,minP:f.minP,note:f.note||'',openAt:f.openAt,closeAt:closeFor(f.date),
+      status:'open',changes:[],seats:{},createdAt:Date.now()};
+    if(f.myName)doc.seats[u.uid]={name:f.myName,at:Date.now()};
+    await gdb.doc('events/'+id).set(doc);rememberEvent(Object.assign({id},doc));openEvent(id);toast('สร้างนัดแล้ว คัดลอกลิงก์ส่งลงกลุ่มได้เลย');
+  }catch(e){console.error(e);toast('สร้างนัดไม่สำเร็จ ลองอีกครั้ง');if(btn){btn.disabled=false;btn.textContent='สร้างนัดและรับลิงก์';}}
+}
+async function eSave(){
+  readEForm();const f=eNew;if(f.minP>f.cap){toast('จำนวนขั้นต่ำต้องไม่เกินจำนวนที่รับ');return}
+  if(!f.course||!f.date||!f.time){toast('ใส่สนาม วันที่ และเวลาให้ครบ');return}
+  const n=seatList(E).length;if(f.cap<n){toast(`ตอนนี้ลงชื่อแล้ว ${n} คน ลดจำนวนรับให้น้อยกว่านี้ไม่ได้`);return}
+  const msgs=[];
+  if(f.date!==E.date||f.time!==E.time)msgs.push(`เลื่อนจาก ${thDate(E.date)} ${E.time} น. เป็น ${thDate(f.date)} ${f.time} น.`);
+  if(f.course!==E.course)msgs.push(`เปลี่ยนสนามเป็น ${f.course}`);
+  if(f.cap!==E.cap)msgs.push(`รับสูงสุด ${f.cap} คน`);
+  if((f.note||'')!==(E.note||''))msgs.push('แก้ไขหมายเหตุ');
+  const upd={course:f.course,date:f.date,time:f.time,cap:f.cap,minP:f.minP,note:f.note||'',openAt:f.openAt,closeAt:closeFor(f.date)};
+  if(f.date!==E.date&&E.status!=='cancelled')upd.status='open';
+  if(msgs.length)upd.changes=(E.changes||[]).concat([{at:Date.now(),text:msgs.join(' · ')}]).slice(-20);
+  try{await gdb.doc('events/'+E.id).set(upd,true);eEdit=null;view='event';render();toast(msgs.length?'บันทึกและแจ้งการเปลี่ยนแปลงแล้ว':'บันทึกแล้ว');}
+  catch(e){console.error(e);toast('บันทึกไม่สำเร็จ');}
+}
+function eStatusBox(e){
+  const ph=ePhase(e),n=seatList(e).length;
+  const box=(cls,title,sub)=>`<div class="estat ${cls}"><div class="et">${title}</div>${sub?`<div class="es">${sub}</div>`:''}</div>`;
+  if(ph==='cancelled')return box('bad','ยกเลิกนัดนี้แล้ว',esc(e.cancelReason||'ผู้นัดยกเลิก'));
+  if(ph==='confirmed')return box('ok','ยืนยันออกรอบ',`${n} คน · ${thDate(e.date)} ${esc(e.time)} น.`);
+  if(ph==='soon')return box('wait','ยังไม่เปิดรับสมัคร',`เปิดรับ ${thDT(e.openAt)}`);
+  if(ph==='open')return box('open',n>=e.cap?'เต็มแล้ว':`เปิดรับสมัคร · เหลือ ${e.cap-n} ที่`,`ปิดรับ ${thDT(e.closeAt)}`);
+  return box('wait','ปิดรับสมัครแล้ว · รอผู้นัดสรุป',n<e.minP?`ลงชื่อ ${n} คน ไม่ถึงขั้นต่ำ ${e.minP} คน`:`ลงชื่อ ${n} คน`);
+}
+function eventView(){
+  const back=`<div class="top"><button class="btn" data-act="events">‹ นัดออกรอบ</button>${E&&!E.loading&&!E.missing?`<button class="btn sm" data-act="ecopy">คัดลอกลิงก์นัด</button>`:''}</div>`;
+  if(!E||E.loading)return back+`<p class="muted">กำลังโหลดนัด…</p>`;
+  if(E.missing)return back+`<div class="notice">ไม่พบนัดนี้ ผู้นัดอาจลบไปแล้ว หรือลิงก์ไม่ครบ</div>`;
+  if(eEdit)return eFormView();
+  const e=E,ph=ePhase(e),seats=seatList(e),uid=gdb&&gdb.uid(),mine=e.seats&&uid&&e.seats[uid]&&e.seats[uid].name?e.seats[uid]:null,org=isOrg();
+  let h=back+`<div><div class="label">${thDate(e.date)} · ทีออฟ ${esc(e.time)} น.</div><h1>${esc(e.course)}</h1></div>`+eStatusBox(e);
+  if(e.changes&&e.changes.length){const c=e.changes[e.changes.length-1];h+=`<div class="notice"><b>อัปเดตล่าสุด</b> (${thDT(c.at)}): ${esc(c.text)}</div>`;}
+  if(e.note)h+=`<div class="panel"><div class="label">หมายเหตุ</div><div class="enote">${esc(e.note)}</div></div>`;
+  h+=`<div class="panel"><div class="top"><h2>ผู้ลงชื่อ</h2><span class="num muted">${seats.length}/${e.cap}</span></div>
+    <div class="seats">${seats.map((s,i)=>`<div class="seat ${s.uid===uid?'me':''}"><span class="num muted">${i+1}</span><span class="t">${esc(s.name)}${s.uid===e.owner?' <span class="chip">ผู้นัด</span>':''}${s.uid===uid?' <span class="chip ok">คุณ</span>':''}</span>${org&&s.uid!==uid&&ph!=='cancelled'?`<button class="linkbtn" data-act="ekick" data-u="${esc(s.uid)}">ลบ</button>`:''}</div>`).join('')}
+    ${[...Array(Math.max(0,e.cap-seats.length))].map((_,i)=>`<div class="seat empty"><span class="num muted">${seats.length+i+1}</span><span class="muted">ว่าง</span></div>`).join('')}</div></div>`;
+  // self sign-up
+  if(ph==='open'){
+    if(mine)h+=`<div class="panel"><div class="muted" style="font-size:.88rem">คุณลงชื่อแล้วในชื่อ <b>${esc(mine.name)}</b> ยกเลิกได้ก่อน ${thDT(e.closeAt)}</div><button class="btn danger full" data-act="eleave">ยกเลิกการลงชื่อของฉัน</button></div>`;
+    else if(seats.length<e.cap)h+=`<div class="panel"><div class="field"><label class="label" for="ename">ชื่อของคุณ</label><input id="ename" maxlength="40" autocomplete="off" value="${esc(getLastName())}"></div><button class="btn primary full" data-act="ejoin">ลงชื่อออกรอบ</button><div class="muted" style="font-size:.8rem">ลงได้เครื่องละ 1 ชื่อ แก้ไขหรือยกเลิกได้เฉพาะชื่อของตัวเอง</div></div>`;
+    else h+=`<div class="notice">นัดนี้เต็มแล้ว ถ้ามีคนยกเลิก ที่ว่างจะกลับมาให้ลงชื่อได้</div>`;
+  }else if(mine&&(ph==='closed'||ph==='confirmed'))h+=`<div class="muted" style="font-size:.85rem;text-align:center">คุณอยู่ในรายชื่อนัดนี้ ถ้าไปไม่ได้ ติดต่อผู้นัดโดยตรง</div>`;
+  if(ph!=='cancelled')h+=`<div class="row"><button class="btn" data-act="eics">เพิ่มลงปฏิทิน</button><button class="btn" data-act="esum">คัดลอกสรุปส่ง LINE</button></div>`;
+  // organizer tools
+  if(org){
+    h+=`<div class="panel orgp"><h2>สำหรับผู้นัด</h2>`;
+    if(ph==='closed'||ph==='open'||ph==='soon')h+=`<div class="row"><button class="btn primary" data-act="econfirm" ${seats.length<2?'disabled':''}>ยืนยันออกรอบ</button><button class="btn danger" data-act="ecancelask">ยกเลิกนัด</button></div>`;
+    if(ph==='confirmed')h+=`<button class="btn primary full" data-act="egroup">เริ่มก๊วนจากนัดนี้ (${seats.length} คน)</button><button class="btn full" data-act="ereopen">ย้อนกลับเป็นรอสรุป</button><button class="btn danger full" data-act="ecancelask">ยกเลิกนัด</button>`;
+    if(ph==='cancelled')h+=`<button class="btn full" data-act="ereopen">เปิดนัดนี้ใหม่</button>`;
+    if(eConfirmCancel)h+=`<div class="confirm"><strong>ยกเลิกนัดนี้?</strong><div class="seg">${['ฝนตก','คนไม่ครบ','สนามปิด','อื่น ๆ'].map(r=>`<button data-act="ecancel" data-r="${r}">${r}</button>`).join('')}</div><button class="btn" data-act="ecancelno">ไม่ยกเลิก</button></div>`;
+    h+=`<button class="btn full" data-act="eedit">แก้ไข / เลื่อนวันเวลา</button>
+      <div class="muted" style="font-size:.8rem">เฉพาะเครื่องนี้ที่เป็นผู้นัด ถ้าล้างข้อมูลเบราว์เซอร์หรือเปลี่ยนเครื่อง จะจัดการนัดนี้ไม่ได้</div></div>`;
+  }
+  return h;
+}
+function getLastName(){try{return localStorage.getItem('golf-myname')||''}catch(e){return''}}
+function setLastName(n){try{localStorage.setItem('golf-myname',n)}catch(e){}}
+function eSummary(e){const s=seatList(e),ph=ePhase(e);
+  const st={cancelled:'❌ ยกเลิก'+(e.cancelReason?` (${e.cancelReason})`:''),confirmed:'✅ ยืนยันออกรอบ',open:`📝 เปิดรับ เหลือ ${e.cap-s.length} ที่ ปิดรับ ${thDT(e.closeAt)}`,closed:'⏳ ปิดรับแล้ว รอสรุป',soon:`🕒 เปิดรับ ${thDT(e.openAt)}`}[ph];
+  return `⛳ ${e.course}\n📅 ${thDate(e.date)} ทีออฟ ${e.time} น.\n${st}\n\n${s.map((x,i)=>`${i+1}. ${x.name}`).join('\n')||'(ยังไม่มีคนลงชื่อ)'}${e.note?`\n\n${e.note}`:''}\n\nลงชื่อ/ดูสถานะ: ${baseUrl()}?e=${e.id}`;}
+function eIcs(e){
+  const st=new Date(`${e.date}T${e.time}:00+07:00`),en=new Date(st.getTime()+5*3600000),f=d=>d.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
+  const t=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//golf-scorebook//TH','BEGIN:VEVENT',`UID:${e.id}@golf-scorebook`,`DTSTAMP:${f(new Date())}`,`DTSTART:${f(st)}`,`DTEND:${f(en)}`,
+    `SUMMARY:ออกรอบกอล์ฟ ${e.course}`,`DESCRIPTION:${(e.note||'').replace(/\n/g,'\\n')}\\n${baseUrl()}?e=${e.id}`,`LOCATION:${e.course}`,'END:VEVENT','END:VCALENDAR'].join('\r\n');
+  const a=document.createElement('a');a.href='data:text/calendar;charset=utf-8,'+encodeURIComponent(t);a.download='golf-'+e.date+'.ics';document.body.appendChild(a);a.click();a.remove();}
+function copyText(t,msg){try{navigator.clipboard.writeText(t).then(()=>toast(msg),()=>fallbackCopy(t))}catch(x){fallbackCopy(t)}}
+function eClick(a,b){
+  if(a==='events'){eStop();E=null;eEdit=null;view='events';render();return true}
+  if(a==='eopen'){openEvent(b.dataset.id);return true}
+  if(a==='enew'){const c0=Object.keys(courses).find(n=>courses[n].isShared)||'';const d=new Date(Date.now()+3*86400000);const p=n=>String(n).padStart(2,'0');
+    eNew={course:c0,date:`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`,time:'07:00',cap:4,minP:2,note:'',openAt:Date.now(),myName:getLastName()};view='enew';render();return true}
+  if(view==='enew'){if(a==='ecreate'){eCreate();return true}return false}
+  if(view!=='event'||!E||E.missing)return false;
+  const ref=gdb.doc('events/'+E.id),uid=gdb.uid();
+  if(a==='ecopy'){copyText(`นัดออกรอบ ${E.course} ${thDate(E.date)} ${E.time} น.\n${baseUrl()}?e=${E.id}`,'คัดลอกลิงก์นัดแล้ว');return true}
+  if(a==='esum'){copyText(eSummary(E),'คัดลอกสรุปแล้ว วางในกลุ่ม LINE ได้เลย');return true}
+  if(a==='eics'){eIcs(E);return true}
+  if(a==='ejoin'){const n=((document.getElementById('ename')||{}).value||'').trim().slice(0,40);if(!n){toast('ใส่ชื่อก่อนลงชื่อ');return true}
+    setLastName(n);gdb.authReady.then(u=>{if(!u)throw{code:'auth'};return ref.set({seats:{[u.uid]:{name:n,at:Date.now()}}},true)})
+      .then(()=>toast('ลงชื่อแล้ว')).catch(e=>toast(e&&e.code==='permission-denied'?'ลงชื่อไม่ได้ นัดอาจเต็มหรือปิดรับแล้ว':'ลงชื่อไม่สำเร็จ ลองอีกครั้ง'));return true}
+  if(a==='eleave'){ref.del('seats.'+uid).then(()=>toast('ยกเลิกการลงชื่อแล้ว')).catch(()=>toast('ยกเลิกไม่สำเร็จ'));return true}
+  if(!isOrg())return false;
+  if(a==='ekick'){ref.del('seats.'+b.dataset.u).catch(()=>toast('ลบไม่สำเร็จ'));return true}
+  if(a==='econfirm'){ref.set({status:'confirmed',decidedAt:Date.now()},true).then(()=>toast('ยืนยันออกรอบแล้ว'));return true}
+  if(a==='ecancelask'){eConfirmCancel=true;render();return true}
+  if(a==='ecancelno'){eConfirmCancel=false;render();return true}
+  if(a==='ecancel'){eConfirmCancel=false;ref.set({status:'cancelled',cancelReason:b.dataset.r,decidedAt:Date.now()},true).then(()=>toast('ยกเลิกนัดแล้ว'));return true}
+  if(a==='ereopen'){ref.set({status:'open'},true);return true}
+  if(a==='eedit'){eNew={course:E.course,date:E.date,time:E.time,cap:E.cap,minP:E.minP||2,note:E.note||'',openAt:E.openAt,id:E.id};eEdit=true;render();return true}
+  if(a==='eeditx'){eEdit=null;render();return true}
+  if(a==='esave'){eSave();return true}
+  if(a==='egroup'){const s=seatList(E).slice(0,10);
+    gNew={course:E.course,date:E.date,holes:18,start:0,me:Math.max(0,s.findIndex(x=>x.uid===uid)),players:s.map(x=>({name:x.name,hcp:x.hcp??null}))};
+    while(gNew.players.length<2)gNew.players.push({name:'',hcp:null});eStop();view='gnew';render();return true}
+  return false;
+}
+
 /* ---------- ก๊วน: shared live scoring ----------
    g/<CODE>            group: course, pars, players[{id,name,hcp}]
    groups/<CODE>/scores/<pid>  one doc per player: h.<hole>.<enteredBy> = strokes, sig.<who> = time
@@ -873,9 +1066,9 @@ function gNewView(){
     <div class="field"><span class="label">จำนวนหลุม</span><div class="seg">
       <button data-act="gholes" data-n="18" aria-pressed="${gNew.holes===18}">18 หลุม</button><button data-act="gholes" data-n="9" aria-pressed="${gNew.holes===9&&!gNew.start}">9 หน้า</button><button data-act="gholes" data-n="9b" aria-pressed="${gNew.holes===9&&gNew.start===9}">9 หลัง</button></div></div>
   </div>
-  <div class="panel"><div class="top"><h2>ผู้เล่น (2–8 คน)</h2><span class="muted" style="font-size:.8rem">แฮนดิแคปไม่ใส่ก็ได้</span></div>
+  <div class="panel"><div class="top"><h2>ผู้เล่น (2–10 คน)</h2><span class="muted" style="font-size:.8rem">แฮนดิแคปไม่ใส่ก็ได้</span></div>
     ${gNew.players.map((p,i)=>`<div class="prow"><input id="gpn${i}" value="${esc(p.name)}" placeholder="ชื่อผู้เล่น ${i+1}" autocomplete="off"><input id="gph${i}" type="number" inputmode="numeric" min="0" max="54" value="${p.hcp??''}" placeholder="HCP"><button class="btn sm ${gNew.me===i?'primary':''}" data-act="gme" data-i="${i}" aria-pressed="${gNew.me===i}">${gNew.me===i?'ฉัน':'ใช่ฉัน?'}</button></div>`).join('')}
-    ${gNew.players.length<8?`<button class="btn sm" data-act="gadd">+ เพิ่มผู้เล่น</button>`:''}
+    ${gNew.players.length<10?`<button class="btn sm" data-act="gadd">+ เพิ่มผู้เล่น</button>`:''}
   </div>
   <button class="btn primary full" data-act="gcreate">สร้างก๊วนและรับรหัส</button>`;
 }
@@ -1076,8 +1269,9 @@ app.addEventListener('click',e=>{
   }
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
   if(a==='new')return newRound();
+  if(eClick(a,b))return;
   if(gClick(a,b))return;
-  if(a==='home'){gStop();G=null;view='home';cur=null;confirmDel=false;return render();}
+  if(a==='home'){gStop();eStop();E=null;G=null;view='home';cur=null;confirmDel=false;return render();}
   if(a==='resume'||a==='open'){const r=rounds.find(x=>x.id===b.dataset.id);if(!r)return;cur=JSON.parse(JSON.stringify(r));confirmDel=false;mapMode='shot';
     if(a==='resume'||!r.complete){hole=Math.max(0,cur.scores.findIndex(x=>x.s==null));view='play';}else view='card';saveState='';return render();}
   if(view==='setup'){
@@ -1145,8 +1339,10 @@ fetch('courses.json').then(r=>r.ok?r.json():null).then(j=>{
 initStore();
 initFirebase().then(fb=>{gdb=fb;
   const q=new URLSearchParams(location.search),g=(q.get('g')||'').toUpperCase(),k=q.get('k');
+  const ev=q.get('e');
   if(g){if(k){setKey(g,k);try{history.replaceState(null,'',baseUrl()+'?g='+g)}catch(e){}}openGroup(g,k);}
-  else if(view==='groups')render();
-}).catch(e=>{fbErr='load';console.error(e);if(view==='groups')render();});
+  else if(ev&&/^[a-z0-9]{8}$/.test(ev))openEvent(ev);
+  else if(view==='groups'||view==='events')render();
+}).catch(e=>{fbErr='load';console.error(e);if(view==='groups'||view==='events')render();});
 </script>
 </body></html>
