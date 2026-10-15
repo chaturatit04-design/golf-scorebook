@@ -15,6 +15,17 @@ service cloud.firestore {
     function isOpen(code) {
       return groupOf(code).get('archived', false) != true;
     }
+    // an abandoned room: not finished, not archived, nothing entered for a day
+    function abandoned(g) {
+      return g.get('ended', false) != true
+        && g.get('archived', false) != true
+        && g.get('thru', 0) < g.get('holes', 18)
+        && g.get('createdAt', 0) < request.time.toMillis() - 86400000
+        && (g.get('last', null) == null || g.last < request.time - duration.value(1, 'd'));
+    }
+    function canPurge(code) {
+      return isMember(code) && abandoned(groupOf(code));
+    }
 
     match /groups/{code} {
       allow get: if true;
@@ -27,17 +38,18 @@ service cloud.firestore {
         || (isMember(code)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['last','thru'])
           && request.resource.data.last == request.time));
-      allow delete: if request.auth != null && resource.data.owner == request.auth.uid;
+      allow delete: if request.auth != null
+        && (resource.data.owner == request.auth.uid || (isMember(code) && abandoned(resource.data)));
 
       match /scores/{pid} {
         allow read: if true;
         allow create, update: if isMember(code) && isOpen(code);
-        allow delete: if isOwner(code);
+        allow delete: if isOwner(code) || canPurge(code);
       }
 
       match /members/{uid} {
         allow read: if request.auth != null && (request.auth.uid == uid || isOwner(code));
-        allow delete: if isOwner(code);
+        allow delete: if (request.auth != null && request.auth.uid == uid) || isOwner(code) || canPurge(code);
         allow create: if request.auth != null && request.auth.uid == uid
           && request.resource.data.k ==
              get(/databases/$(database)/documents/groupKeys/$(code)).data.k;
@@ -61,7 +73,8 @@ service cloud.firestore {
           && isOpen(code);
         allow delete: if request.auth != null
           && (resource.data.uid == request.auth.uid
-              || groupOf(code).owner == request.auth.uid);
+              || groupOf(code).owner == request.auth.uid
+              || canPurge(code));
       }
 
       match /watch/{uid} {
@@ -69,13 +82,14 @@ service cloud.firestore {
         allow create, update: if request.auth != null && request.auth.uid == uid
           && request.resource.data.keys().hasOnly(['at','exp'])
           && request.resource.data.at == request.time;
-        allow delete: if (request.auth != null && request.auth.uid == uid) || isOwner(code);
+        allow delete: if (request.auth != null && request.auth.uid == uid) || isOwner(code) || canPurge(code);
       }
     }
 
     match /groupKeys/{code} {
       allow read: if false;
-      allow create, delete: if isOwner(code);
+      allow create: if isOwner(code);
+      allow delete: if isOwner(code) || canPurge(code);
     }
 
     match /live/{code} {
@@ -86,7 +100,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['course','date','n','thru','ended','lead','leadPar','last','exp'])
         && request.resource.data.last == request.time;
       allow delete: if request.auth != null
-        && groupOf(code).owner == request.auth.uid;
+        && (groupOf(code).owner == request.auth.uid || canPurge(code));
     }
 
     match /events/{id} {

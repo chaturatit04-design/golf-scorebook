@@ -796,7 +796,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.15-b';
+const APPV='2026.10.15-c';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1469,12 +1469,14 @@ function gLeaveWatch(code){const u=gdb&&gdb.uid();if(u&&code)gdb.doc(`groups/${c
 async function gDeleteGroup(){
   const code=G.code,ref=gdb.doc('groups/'+code);gDeleting=true;render();
   gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);
-  try{
-    for(const c of ['scores','chat','members','watch']){const ids=await ref.ids(c);
+  try{const me=gdb.uid();
+    // own membership goes last: a player's right to clear an abandoned room rests on it
+    for(const c of ['scores','chat','watch','members']){const ids=(await ref.ids(c)).filter(id=>!(c==='members'&&id===me));
       for(let i=0;i<ids.length;i+=20)await Promise.all(ids.slice(i,i+20).map(id=>gdb.doc(`groups/${code}/${c}/${id}`).remove()));}
     await gdb.doc('live/'+code).remove().catch(()=>{});
     await gdb.doc('groupKeys/'+code).remove().catch(()=>{});
     await ref.remove();
+    await gdb.doc(`groups/${code}/members/${me}`).remove().catch(()=>{});
     try{localStorage.setItem(GKEY,JSON.stringify(myGroups().filter(x=>x.code!==code)));['golf-gk-','golf-g-me-','golf-chatseen-','golf-chatmute-','golf-hl-'].forEach(k=>localStorage.removeItem(k+code));}catch(e){}
     gStop();G=null;gDelAsk=false;gDeleting=false;view='groups';render();toast('ลบก๊วนแล้ว');
   }catch(e){console.error(e);gDeleting=false;render();toast('ลบไม่ครบ ลองกดลบอีกครั้ง');}
@@ -1798,7 +1800,7 @@ async function sharePhoto(file){
    groups/<CODE>/scores/<pid>  one doc per player: h.<hole>.<enteredBy> = strokes, sig.<who> = time
    groups/<CODE>/members/<uid> = device allowed to write (proved by the secret key in the player link)
    Every player can enter any player's score; agreement between entries = verified. */
-let gdb=null,gCan=null,G=null,GS={},gUnsub=[],gTab='hole',gHole=0,gMe=null,gNew=null,gRO=false;
+let gListEdit=false,gdb=null,gCan=null,G=null,GS={},gUnsub=[],gTab='hole',gHole=0,gMe=null,gNew=null,gRO=false;
 const GKEY='golf-groups';
 function myGroups(){try{return JSON.parse(localStorage.getItem(GKEY)||'[]')}catch(e){return[]}}
 function rememberGroup(g){const l=myGroups().filter(x=>x.code!==g.code);l.unshift({code:g.code,course:g.course,date:g.date});try{localStorage.setItem(GKEY,JSON.stringify(l.slice(0,20)))}catch(e){}}
@@ -1964,7 +1966,9 @@ function groupsView(){
   const all=myGroups().slice().sort((a,b)=>(ord[(GL[a.code]||{}).k]??2)-(ord[(GL[b.code]||{}).k]??2));
   const l=all.filter(x=>!(GL[x.code]&&GL[x.code].archived)),arc=all.filter(x=>GL[x.code]&&GL[x.code].archived);
   const row=x=>`<button class="item" data-act="gopen" data-code="${esc(x.code)}"><div style="min-width:0"><div class="t">${GL[x.code]?`<span class="ldot sm ${GL[x.code].k}"></span> `:''}${esc(x.course||'')}</div><div class="muted" style="font-size:.85rem">${x.date?fmtDate(x.date):''}</div></div><span class="num" style="font-weight:600;letter-spacing:.08em">${esc(x.code)}</span><span></span></button>`;
-  if(l.length)h+=`<div class="panel"><h2>ก๊วนที่เคยเข้า</h2><div class="list">${l.map(row).join('')}</div></div>`;
+  if(l.length)h+=`<div class="panel"><div class="top"><h2>ก๊วนที่เคยเข้า</h2><button class="btn sm" data-act="glistedit" aria-pressed="${gListEdit}">${gListEdit?'เสร็จ':'จัดการ'}</button></div>
+    ${gListEdit?`<div class="muted" style="font-size:.8rem">กด "ซ่อน" เพื่อเอาออกจากรายการในเครื่องนี้ ไม่กระทบคนอื่น</div><div class="list">${l.map(x=>`<div class="pr"><div style="min-width:0"><b>${esc(x.course||'')}</b><div class="muted" style="font-size:.82rem">${x.date?fmtDate(x.date):''} · ${esc(x.code)}</div></div><button class="btn sm" data-act="gforgetl" data-code="${esc(x.code)}">ซ่อน</button></div>`).join('')}</div>`
+      :`<div class="list">${l.map(row).join('')}</div>`}</div>`;
   if(arc.length)h+=`<details class="panel"><summary class="label">คลัง (${arc.length})</summary><div class="list">${arc.map(row).join('')}</div></details>`;
   return h;
 }
@@ -2036,11 +2040,20 @@ function groupView(){
   if(gRO&&(gTab==='hole'||(gTab==='share'&&!isOwn)))gTab='board';
   h+=`<div class="seg">${tabs.map(([k,l])=>`<button data-act="gtab" data-t="${k}" aria-pressed="${gTab===k}">${l}</button>`).join('')}</div>`;
   if(gTab==='hole')h+=gHoleView();else if(gTab==='board')h+=gBoardView();else if(gTab==='share')h+=gShareView();else if(gTab==='chat')h+=gChatView();else h+=gCardView();
+  if(gRO&&!(G.owner===gdb.uid()))h+=`<button class="btn sm" style="align-self:center" data-act="gforget">ซ่อนก๊วนนี้จากรายการของฉัน</button>`;
   if(!gRO)h+=`<div class="muted" style="font-size:.78rem;text-align:center">คุณคือ <b>${gMe==='watch'?'ผู้ชม':esc(pName(gMe))}</b> · <button class="linkbtn" data-act="gwhoreset">เปลี่ยน</button></div>`;
   return h;
 }
 const baseUrl=()=>location.origin+location.pathname;
 function gLinks(){const k=getKey(G.code);return{play:k?`${baseUrl()}?g=${G.code}&k=${k}`:null,watch:`${baseUrl()}?g=${G.code}`}}
+// a round nobody finished and nobody touched for a day; any player may clear it (same test as the rules)
+function gAbandoned(){if(!G||G.ended||G.archived)return false;const last=tsMs(G.last)||0,made=+G.createdAt||0,day=86400000;
+  return (G.thru||0)<G.pars.length&&made&&Date.now()-made>day&&(!last||Date.now()-last>day)}
+function gForget(code){try{localStorage.setItem(GKEY,JSON.stringify(myGroups().filter(x=>x.code!==code)))}catch(e){}}
+function delBlock(){return gDelAsk?`<div class="confirm"><strong>ลบก๊วนนี้ถาวร?</strong><span class="muted">สกอร์ ห้องเชียร์ และลิงก์ทั้งหมดจะใช้ไม่ได้ กู้คืนไม่ได้ ผู้เล่นที่กด "บันทึกเป็นรอบของฉัน" ไว้แล้ว รอบนั้นยังอยู่ในสมุดของเขา</span>
+      <div class="field"><label class="label" for="gdelcode">พิมพ์รหัสก๊วน ${esc(G.code)} เพื่อยืนยัน</label><input id="gdelcode" class="cin" autocomplete="off" autocapitalize="characters" maxlength="6"></div>
+      <div class="row"><button class="btn" data-act="gdelno">ไม่ลบ</button><button class="btn danger" data-act="gdelyes" ${gDeleting?'disabled':''}>${gDeleting?'กำลังลบ…':'ลบถาวร'}</button></div></div>`
+      :`<button class="btn danger full" data-act="gdelask">ลบก๊วนถาวร</button>`}
 function gShareView(){const L=gLinks();
   return `<div class="panel"><h2>ลิงก์ผู้เล่น</h2><div class="muted" style="font-size:.88rem">ส่งเฉพาะคนในก๊วน เปิดแล้วเลือกชื่อตัวเองและกรอกสกอร์ได้ ไม่ต้องสมัครอะไร</div>
     ${L.play?`<div class="linkbox num">${esc(L.play)}</div><button class="btn primary full" data-act="gcopylink" data-w="play">คัดลอกลิงก์ผู้เล่น</button>`:'<div class="muted">เครื่องนี้ไม่มีลิงก์ผู้เล่น</div>'}</div>
@@ -2054,10 +2067,10 @@ function gShareView(){const L=gLinks();
     ${G.archived?'':`<button class="btn full" data-act="gverify">${gVerify()?'ปิดโหมดตรวจทาน (ใครกรอกก็ได้ ค่าล่าสุดใช้)':'เปิดโหมดตรวจทานสกอร์'}</button>`}
     <button class="btn full" data-act="garchive">${G.archived?'เอาออกจากคลัง':'เก็บเข้าคลัง'}</button>
     <div class="muted" style="font-size:.8rem">เก็บเข้าคลัง: ซ่อนจากรายการและหน้ากำลังแข่ง ข้อมูลยังอยู่ เปิดจากลิงก์ได้แบบอ่านอย่างเดียว</div>
-    ${gDelAsk?`<div class="confirm"><strong>ลบก๊วนนี้ถาวร?</strong><span class="muted">สกอร์ ห้องเชียร์ และลิงก์ทั้งหมดจะใช้ไม่ได้ กู้คืนไม่ได้ ผู้เล่นที่กด "บันทึกเป็นรอบของฉัน" ไว้แล้ว รอบนั้นยังอยู่ในสมุดของเขา</span>
-      <div class="field"><label class="label" for="gdelcode">พิมพ์รหัสก๊วน ${esc(G.code)} เพื่อยืนยัน</label><input id="gdelcode" class="cin" autocomplete="off" autocapitalize="characters" maxlength="6"></div>
-      <div class="row"><button class="btn" data-act="gdelno">ไม่ลบ</button><button class="btn danger" data-act="gdelyes" ${gDeleting?'disabled':''}>${gDeleting?'กำลังลบ…':'ลบถาวร'}</button></div></div>`
-      :`<button class="btn danger full" data-act="gdelask">ลบก๊วนถาวร</button>`}</div>`:''}`;}
+    ${delBlock()}</div>`
+    :`<div class="panel"><h2>ลบก๊วน</h2>${gAbandoned()&&!gRO?`<div class="muted" style="font-size:.85rem">ก๊วนนี้แข่งไม่จบ และไม่มีใครกรอกสกอร์เกิน 1 วันแล้ว ผู้เล่นในก๊วนลบได้</div>${delBlock()}`
+      :`<div class="muted" style="font-size:.85rem">ลบได้เฉพาะเครื่องที่ใช้สร้างก๊วน (สร้างใน Safari/Chrome แต่เปิดจากไอคอนหน้าจอโฮมหรือใน LINE นับเป็นคนละเครื่อง ลองเปิดจากที่เดิมที่ใช้สร้าง) · ถ้าแข่งไม่จบและไม่มีใครกรอกสกอร์เกิน 1 วัน ผู้เล่นทุกคนในก๊วนลบได้</div>`}</div>`}
+  <button class="btn full" data-act="gforget">ซ่อนก๊วนนี้จากรายการของฉัน</button>`;}
 function stChip(s,pid){
   if(s.simple)return `<span class="chip">กรอกโดย ${esc(s.by===pid?'ตัวเอง':pName(s.by))}</span>`;
   if(s.st==='ok')return `<span class="chip ok">✓ ตรงกัน ${s.e.length} คน</span>`;
@@ -2186,6 +2199,8 @@ function gClick(a,b){
   if(a==='lobbyopen'){openGroup(b.dataset.code,getKey(b.dataset.code));return true}
   if(view==='group'&&G&&!G.loading&&!G.missing&&chatClick(a,b))return true;
   if(a==='groups'){gStop();G=null;view='groups';render();return true}
+  if(a==='glistedit'){gListEdit=!gListEdit;render();return true}
+  if(a==='gforgetl'){gForget(b.dataset.code);render();return true}
   if(a==='gopen'){openGroup(b.dataset.code,getKey(b.dataset.code));return true}
   if(a==='gjoin'){openGroup((document.getElementById('gcode')||{}).value);return true}
   if(a==='gnew'){const c0=Object.keys(courses).find(n=>courses[n].isShared)||(sorted()[0]||{}).course||'';
@@ -2233,7 +2248,8 @@ function gClick(a,b){
   if(a==='gawardcard'){openShare(srcGroupResult(),'awards');return true}
   if(a==='gdelask'){gDelAsk=true;render();return true}
   if(a==='gdelno'){gDelAsk=false;render();return true}
-  if(a==='gdelyes'&&G.owner===gdb.uid()){const v=((document.getElementById('gdelcode')||{}).value||'').trim().toUpperCase();
+  if(a==='gforget'){const code=G.code;gStop();gForget(code);G=null;view='groups';render();toast('ซ่อนจากรายการแล้ว เปิดด้วยลิงก์หรือรหัสได้เหมือนเดิม');return true}
+  if(a==='gdelyes'&&(G.owner===gdb.uid()||(gAbandoned()&&!gRO))){const v=((document.getElementById('gdelcode')||{}).value||'').trim().toUpperCase();
     if(v!==G.code){toast('รหัสไม่ตรง ยังไม่ได้ลบ');return true}gDeleteGroup();return true}
   if(a==='gpub'&&G.owner===gdb.uid()){const on=!G.public;gdb.doc('groups/'+G.code).set({public:on},true).then(()=>{G.public=on;if(on)liveCard();else gdb.doc('live/'+G.code).remove().catch(()=>{});toast(on?'แสดงในหน้ากำลังแข่งแล้ว':'เลิกแสดงแล้ว')});return true}
   const liveTag=gLive().k==='live'?'🟢 กำลังแข่งสด · ':'';
