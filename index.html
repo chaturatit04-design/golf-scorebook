@@ -259,6 +259,9 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .msg.mine{align-self:flex-end;background:var(--birdie-bg);border-radius:12px 12px 4px 12px}
 .msg .mh{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.75rem}
 .msg .mt{overflow-wrap:anywhere;white-space:pre-wrap}
+.aw{display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.awe{font-size:1.8rem;line-height:1}
+.awn{font-weight:600}
 .msys.bingo{background:#f2c230;color:#3a2c00}
 .msys{align-self:center;font-size:.8rem;font-weight:600;background:var(--soft);border-radius:999px;padding:3px 12px;text-align:center}
 .cheers{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
@@ -793,7 +796,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.14-g';
+const APPV='2026.10.15-a';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1325,8 +1328,37 @@ function chatHighlights(){
     if(G.ended||gAllDone()){
       if(t&&t.ok)add('fin',`🏁 จบรอบ! ${teamStatus(t)}`,9999);
       else if(!t){const r=gSort(gRows().filter(x=>x.thru))[0];if(r){const g=gGame();add('fin',`🏁 จบรอบ! 🏆 ${r.p.name} ชนะ ${g==='h2h'?fmtUp(r.h2h):g==='stableford'?r.pts+' แต้ม':g==='s36'?'Net '+r.s36net:`${r.g} (${toPar(r.toPar)})`}`,9999);}}}
+    gAwards().forEach((a,j)=>add('aw-'+a.n,`${a.e} ${a.n}: ${awNames(a)} · ${a.txt}`,10000+j));
     if(changed)lsSet(k,JSON.stringify(seen));return out;}
 }
+/* ---------- รางวัลประจำก๊วน ----------
+   handed out once the round is over, worked out from the scores; an award everyone ties for is skipped */
+function gAwards(){
+  if(!G||!G.pars||!G.players||!(G.ended||gAllDone()))return[];
+  const N=G.pars.length;
+  const P=G.players.map(p=>{const d=G.pars.map((par,i)=>{const v=hStat(p.id,i).val;return v==null?null:v-par}),pl=d.filter(x=>x!=null);
+    let bingo=0,run=0;d.forEach(x=>{if(x==null||x>0){run=0;return}if(++run===3){run=0;bingo++}});
+    let swing=0,prev=null;d.forEach(x=>{if(x==null)return;if(prev!=null)swing+=Math.abs(x-prev);prev=x});
+    const full=N===18&&d.every(x=>x!=null),sum=a=>a.reduce((x,y)=>x+y,0);
+    return {p,n:pl.length,bird:pl.filter(x=>x<=-1).length,bingo,bogey:pl.filter(x=>x>=1).length,pars:pl.filter(x=>x===0).length,swing,
+      worst:pl.length?Math.max(...pl):null,comeback:full?sum(d.slice(0,9))-sum(d.slice(9,18)):null};}).filter(x=>x.n>0);
+  const pick=(key,dir,lim)=>{const vals=P.map(x=>x[key]).filter(v=>v!=null);if(!vals.length)return null;const best=dir>0?Math.max(...vals):Math.min(...vals);
+    if(lim!=null&&(dir>0?best<lim:best>lim))return null;const w=P.filter(x=>x[key]===best);if(P.length>1&&w.length===P.length)return null;return{w,v:best}};
+  const A=[],add=(e,n,r,txt)=>{if(r)A.push({e,n,names:r.w.map(x=>x.p.name),txt:txt(r.v)})};
+  add('🐦','ราชาเบอร์ดี้',pick('bird',1,1),v=>`${v} เบอร์ดี้`);
+  add('😎','Bingo King',pick('bingo',1,1),v=>`แตก ${v} ครั้ง`);
+  add('🔥','ฟื้นคืนชีพ',pick('comeback',1,2),v=>`9 หลังดีกว่า 9 หน้า ${v} ไม้`);
+  add('🧱','กำแพงเหล็ก',pick('bogey',-1),v=>v?`โบกี้แค่ ${v} หลุม`:'ไม่เสียเลยสักหลุม');
+  add('🎯','พาร์แมน',pick('pars',1,4),v=>`พาร์ ${v} หลุม`);
+  add('🎢','รถไฟเหาะ',pick('swing',1,8),v=>`สกอร์ขึ้นลงรวม ${v} ไม้`);
+  add('💥','หลุมระเบิด',pick('worst',1,3),v=>`เกินพาร์ ${v} ไม้ในหลุมเดียว`);
+  return A;
+}
+const awNames=a=>a.names.length>3?a.names.slice(0,3).join(', ')+` +${a.names.length-3}`:a.names.join(', ')+(a.names.length>1?' (ร่วม)':'');
+function awardsPanel(){const A=gAwards();if(!A.length)return'';
+  return `<div class="panel"><div class="top"><h2>🏅 รางวัลประจำก๊วน</h2><span class="muted" style="font-size:.8rem">แจกอัตโนมัติ</span></div>
+    ${A.map(a=>`<div class="aw"><span class="awe">${a.e}</span><div style="min-width:0"><b>${esc(a.n)}</b> <span class="muted" style="font-size:.82rem">${esc(a.txt)}</span><div class="awn">${esc(awNames(a))}</div></div></div>`).join('')}
+    <button class="btn full" data-act="gawardcard">การ์ดรางวัล (แชร์ลง LINE / โซเชียล)</button></div>`}
 function chatItems(){const m=GC.map(x=>Object.assign({},x));return m.concat(chatHighlights()).sort((a,b)=>a.at-b.at||(a.o||0)-(b.o||0))}
 // viewers also get the unread count for highlights; players only for messages
 function chatUnread(){if(!G)return 0;const seen=+lsGet(chatSeenKey(),0),me=gdb&&gdb.uid(),L=chatRole()==='v'?chatItems():GC;return L.filter(m=>m.at>seen&&m.uid!==me).length}
@@ -1477,9 +1509,10 @@ function srcGroupResult(){const game=gGame();let rows=gSort(gRows().filter(r=>r.
     src.rows=rows.slice().sort((a,b)=>o(a)-o(b)).map(r=>Object.assign({},r,{tm:teamOf(r.p.id)||'A',p:Object.assign({},r.p,{name:TEAMS[teamOf(r.p.id)||'A'].e+' '+r.p.name})}));
     src.team={A:t.A,B:t.B,T:t.T,n:t.n,lead:t.lead,diff:t.diff,over:t.over,status:teamStatus(t),w:t.holes.map(h=>h.w),m:t.holes.map(h=>h.m),sumA:t.sumA,sumB:t.sumB,
       mem:{A:rows.filter(r=>o(r)===0),B:rows.filter(r=>o(r)===1)}};}
+  src.awards=gAwards();
   return src}
-function openShare(src){
-  SH={src,prev:view,size:'9x16',theme:src.kind==='gresult'?(src.game==='team'?'team':'rank'):'photo',photo:null,name:src.name||getLastName()||'',stats:true,url:null,busy:false};
+function openShare(src,theme){
+  SH={src,prev:view,size:'9x16',theme:theme||(src.kind==='gresult'?(src.game==='team'?'team':'rank'):'photo'),photo:null,name:src.name||getLastName()||'',stats:true,url:null,busy:false};
   view='share';render();shareDraw();window.scrollTo({top:0});
 }
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
@@ -1628,6 +1661,18 @@ async function drawResultEach(c,W,H,src){
   });
   c.textBaseline='alphabetic';
 }
+async function drawAwards(c,W,H,src){
+  const top=resultHead(c,W,H,src,'รางวัลประจำก๊วน'),A=src.awards||[],x0=W*0.05,bw=W*0.9,gap=W*0.02;
+  const rh=Math.min(W*0.17,(H*0.97-top-gap*(A.length-1))/Math.max(A.length,1));
+  A.forEach((a,k)=>{const y=top+k*(rh+gap);rr(c,x0,y,bw,rh,rh*0.18);c.fillStyle=k%2?'rgba(255,255,255,.12)':'rgba(255,255,255,.95)';c.fill();
+    const ink=k%2?'#fff':CARD.ink,sub=k%2?'rgba(255,255,255,.75)':CARD.muted;c.textBaseline='middle';
+    c.textAlign='center';c.fillStyle='#000';c.font=`${rh*0.48}px sans-serif`;c.fillText(a.e,x0+rh*0.55,y+rh/2);
+    c.textAlign='left';c.fillStyle=ink;c.font=`700 ${rh*0.27}px "Bai Jamjuree",sans-serif`;c.fillText(a.n,x0+rh*1.1,y+rh*0.3,bw-rh*1.3);
+    c.font=`700 ${rh*0.24}px "IBM Plex Sans Thai",sans-serif`;c.fillText(awNames(a),x0+rh*1.1,y+rh*0.6,bw-rh*1.3);
+    c.fillStyle=sub;c.font=`500 ${rh*0.17}px "IBM Plex Sans Thai",sans-serif`;c.fillText(a.txt,x0+rh*1.1,y+rh*0.85,bw-rh*1.3);});
+  if(!A.length){c.fillStyle='#fff';c.textAlign='center';c.font=`600 ${W*0.04}px "IBM Plex Sans Thai",sans-serif`;c.fillText('รางวัลจะแจกเมื่อจบรอบ',W/2,top+W*0.1);}
+  c.textBaseline='alphabetic';
+}
 async function drawTeamResult(c,W,H,src){
   const top=resultHead(c,W,H,src,'ผลแข่งทีม'),t=src.team,x0=W*0.04,bw=W*0.92;
   const sbH=Math.min(W*0.4,(H-top)*0.34),gap=W*0.03,half=(bw-gap)/2;
@@ -1675,7 +1720,7 @@ async function shareDraw(){
   if(!SH)return;const my=SH;my.busy=true;if(view==='share')render();
   await fontsReady();
   const [W,H]=SIZES[my.size],cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');
-  try{if(my.src.kind==='wrap')await drawWrap(c,W,H,my.src);else if(my.src.kind==='gresult'){if(my.theme==='team'&&my.src.team)await drawTeamResult(c,W,H,my.src);else if(my.theme==='grid')await drawResultGrid(c,W,H,my.src);else if(my.theme==='each')await drawResultEach(c,W,H,my.src);else await drawResult(c,W,H,my.src);}else if(my.theme==='photo')await drawPhoto(c,W,H,my.src);else if(my.theme==='route')await drawRoute(c,W,H,my.src);else await drawClean(c,W,H,my.src);}
+  try{if(my.src.kind==='wrap')await drawWrap(c,W,H,my.src);else if(my.src.kind==='gresult'){if(my.theme==='awards')await drawAwards(c,W,H,my.src);else if(my.theme==='team'&&my.src.team)await drawTeamResult(c,W,H,my.src);else if(my.theme==='grid')await drawResultGrid(c,W,H,my.src);else if(my.theme==='each')await drawResultEach(c,W,H,my.src);else await drawResult(c,W,H,my.src);}else if(my.theme==='photo')await drawPhoto(c,W,H,my.src);else if(my.theme==='route')await drawRoute(c,W,H,my.src);else await drawClean(c,W,H,my.src);}
   catch(e){console.error(e);}
   cv.toBlob(b=>{if(SH!==my)return;if(my.url)URL.revokeObjectURL(my.url);my.blob=b;my.url=URL.createObjectURL(b);my.busy=false;if(view==='share')render();},'image/png');
 }
@@ -1688,7 +1733,7 @@ function shareView(){
   <div class="row"><button class="btn primary" data-act="shshare" ${s.url?'':'disabled'}>แชร์</button><button class="btn" data-act="shsave" ${s.url?'':'disabled'}>บันทึกรูป</button></div>
   <div class="panel">
     <div class="field"><span class="label">ขนาด</span><div class="seg">${[['9x16','Story 9:16'],['4x5','โพสต์ 4:5'],['1x1','จัตุรัส']].map(([k,l])=>`<button data-act="shsize" data-v="${k}" aria-pressed="${s.size===k}">${l}</button>`).join('')}</div></div>
-    ${src.kind==='gresult'?`<div class="field"><span class="label">แบบ</span><div class="seg">${[src.game==='team'?['team','ผลทีม']:['rank','อันดับ'],['grid','ตารางทุกหลุม'],['each','รายคนทุกหลุม']].map(([k,l])=>`<button data-act="shtheme" data-v="${k}" aria-pressed="${s.theme===k}">${l}</button>`).join('')}</div></div>`:''}
+    ${src.kind==='gresult'?`<div class="field"><span class="label">แบบ</span><div class="seg">${[src.game==='team'?['team','ผลทีม']:['rank','อันดับ'],['grid','ตารางทุกหลุม'],['each','รายคนทุกหลุม']].concat(src.awards&&src.awards.length?[['awards','รางวัล']]:[]).map(([k,l])=>`<button data-act="shtheme" data-v="${k}" aria-pressed="${s.theme===k}">${l}</button>`).join('')}</div></div>`:''}
     ${src.kind==='gresult'?'':src.kind==='wrap'?wrapOpts(s):`<div class="field"><span class="label">ธีม</span><div class="seg">${[['photo','รูปเต็ม'],['clean','คลีน']].concat(canRoute?[['route','เส้นทางลูก']]:[]).map(([k,l])=>`<button data-act="shtheme" data-v="${k}" aria-pressed="${s.theme===k}">${l}</button>`).join('')}</div></div>
     ${s.theme==='photo'?`<div class="row"><button class="btn" data-act="shphoto">${s.photo?'เปลี่ยนรูป':'เลือกรูปของคุณ'}</button>${s.photo?'<button class="btn" data-act="shnophoto">ไม่ใช้รูป</button>':''}</div><input type="file" id="shfile" accept="image/*" hidden>`:''}
     <div class="field"><label class="label" for="shname">ชื่อที่แสดง</label><input id="shname" class="cin" maxlength="30" value="${esc(s.name)}" placeholder="เว้นว่างได้"></div>
@@ -2061,6 +2106,7 @@ function gBoardView(){
       <span class="num">${r.thru}</span><span class="num b">${r.thru?r.g:'–'}</span>${hh?`<span class="num b" style="color:var(${r.h2h>0?'--birdie':r.h2h<0?'--bogey':'--ink'})">${r.thru?(r.h2h>0?'+':'')+r.h2h:'–'}</span>`:s36?`<span class="num">${r.thru?r.s36hcp:'–'}</span><span class="num b ${r.thru?scCls(Math.sign(r.s36np)*Math.min(Math.abs(r.s36np),2)):''}">${r.thru?r.s36net:'–'}</span>`:sf?`<span class="num b" style="color:var(--accent)">${r.thru?r.pts:'–'}</span>`:`<span class="num b ${r.thru?scCls(Math.sign(r.toPar)*Math.min(Math.abs(r.toPar),2)):''}">${r.thru?toPar(r.toPar):'–'}</span>`}${anyH?`<span class="num">${r.thru&&r.hcp?r.net:'–'}</span>`:''}</div>`;});
   h+=`</div>${s36?`<div class="muted" style="font-size:.78rem">${S36_HELP}<br>ระหว่างเล่น คิดจากหลุมที่เล่นแล้ว (2 แต้มต่อหลุม − แต้มที่ได้)</div>`:''}${sf?`<div class="muted" style="font-size:.78rem">แต้มต่อหลุม: ${SF_HELP} (คิดจากสกอร์จริง ยังไม่หักแฮนดิแคป)</div>`:''}${anyH?'<div class="muted" style="font-size:.78rem">Net = สกอร์รวม − แฮนดิแคปตามสัดส่วนหลุมที่เล่น (ต้นแบบนี้ยังไม่ใช้ Stroke Index ของแต่ละหลุม)</div>':''}</div>`;
   if(hh)h+=h2hPanels();
+  h+=awardsPanel();
   if(rows.some(r=>r.thru))h+=`<button class="btn full" data-act="gresultcard">การ์ดผลก๊วน (แชร์ลง LINE / โซเชียล)</button>`;
   if(G.owner===gdb.uid()&&!G.ended&&!gAllDone()&&gThru()>0)h+=`<button class="btn full" data-act="gend">จบรอบ</button>`;
   if(gMe&&gMe!=='watch'){
@@ -2155,6 +2201,7 @@ function gClick(a,b){
     const g=cur?cur.g:hcDir[k];if(!g){toast('เลือกก่อนว่าใครเป็นคนต่อ');return true}
     const n=+b.dataset.n,hs=cur?cur.holes.slice():[],i=hs.indexOf(n);if(i>=0)hs.splice(i,1);else hs.push(n);hs.sort((x,y)=>x-y);
     hcDir[k]=g;hcSet(pa,pb,g,hs);render();return true}
+  if(a==='gawardcard'){openShare(srcGroupResult(),'awards');return true}
   if(a==='gdelask'){gDelAsk=true;render();return true}
   if(a==='gdelno'){gDelAsk=false;render();return true}
   if(a==='gdelyes'&&G.owner===gdb.uid()){const v=((document.getElementById('gdelcode')||{}).value||'').trim().toUpperCase();
