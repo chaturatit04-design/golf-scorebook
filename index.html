@@ -796,7 +796,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.15-a';
+const APPV='2026.10.15-b';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1335,24 +1335,52 @@ function chatHighlights(){
    handed out once the round is over, worked out from the scores; an award everyone ties for is skipped */
 function gAwards(){
   if(!G||!G.pars||!G.players||!(G.ended||gAllDone()))return[];
-  const N=G.pars.length;
+  const N=G.pars.length,game=gGame(),sum=a=>a.reduce((x,y)=>x+y,0);
+  // extra per-player tallies for the team and handicap games
+  const carry={},luck={};
+  if(game==='team'){const t=teamCalc();if(t.ok)t.holes.forEach(h=>(h.pairs||[]).forEach(x=>{if(x.by)carry[x.by]=(carry[x.by]||0)+x.q}));}
+  if(game==='h2h'){h2hCalc().pairs.forEach(x=>Object.values(x.det).forEach(d=>{if(d&&d.st&&d.w===d.st)luck[d.st]=(luck[d.st]||0)+1}));}
   const P=G.players.map(p=>{const d=G.pars.map((par,i)=>{const v=hStat(p.id,i).val;return v==null?null:v-par}),pl=d.filter(x=>x!=null);
     let bingo=0,run=0;d.forEach(x=>{if(x==null||x>0){run=0;return}if(++run===3){run=0;bingo++}});
     let swing=0,prev=null;d.forEach(x=>{if(x==null)return;if(prev!=null)swing+=Math.abs(x-prev);prev=x});
-    const full=N===18&&d.every(x=>x!=null),sum=a=>a.reduce((x,y)=>x+y,0);
-    return {p,n:pl.length,bird:pl.filter(x=>x<=-1).length,bingo,bogey:pl.filter(x=>x>=1).length,pars:pl.filter(x=>x===0).length,swing,
-      worst:pl.length?Math.max(...pl):null,comeback:full?sum(d.slice(0,9))-sum(d.slice(9,18)):null};}).filter(x=>x.n>0);
+    const full=d.every(x=>x!=null),f18=N===18&&full,by=par=>{const a=d.filter((x,i)=>G.pars[i]===par);return a.length&&a.every(x=>x!=null)?sum(a):null};
+    const bird=pl.filter(x=>x<=-1).length,bogey=pl.filter(x=>x>=1).length,worst=pl.length?Math.max(...pl):null;
+    return {p,n:pl.length,bird,bingo,bogey,pars:pl.filter(x=>x===0).length,swing,worst,
+      comeback:f18?sum(d.slice(0,9))-sum(d.slice(9,18)):null,
+      first3:N>=6&&d.slice(0,3).every(x=>x!=null)?sum(d.slice(0,3)):null,
+      last3:N>=6&&d.slice(-3).every(x=>x!=null)?sum(d.slice(-3)):null,
+      p3:by(3),p5:by(5),
+      fridge:full&&worst<2?1:null,
+      steady:full&&bird===0?bogey:null,
+      tough:full&&worst<=2?sum(pl):null,
+      carry:carry[p.id]||null,luck:luck[p.id]||null};}).filter(x=>x.n>0);
   const pick=(key,dir,lim)=>{const vals=P.map(x=>x[key]).filter(v=>v!=null);if(!vals.length)return null;const best=dir>0?Math.max(...vals):Math.min(...vals);
     if(lim!=null&&(dir>0?best<lim:best>lim))return null;const w=P.filter(x=>x[key]===best);if(P.length>1&&w.length===P.length)return null;return{w,v:best}};
-  const A=[],add=(e,n,r,txt)=>{if(r)A.push({e,n,names:r.w.map(x=>x.p.name),txt:txt(r.v)})};
-  add('🐦','ราชาเบอร์ดี้',pick('bird',1,1),v=>`${v} เบอร์ดี้`);
-  add('😎','Bingo King',pick('bingo',1,1),v=>`แตก ${v} ครั้ง`);
-  add('🔥','ฟื้นคืนชีพ',pick('comeback',1,2),v=>`9 หลังดีกว่า 9 หน้า ${v} ไม้`);
-  add('🧱','กำแพงเหล็ก',pick('bogey',-1),v=>v?`โบกี้แค่ ${v} หลุม`:'ไม่เสียเลยสักหลุม');
-  add('🎯','พาร์แมน',pick('pars',1,4),v=>`พาร์ ${v} หลุม`);
-  add('🎢','รถไฟเหาะ',pick('swing',1,8),v=>`สกอร์ขึ้นลงรวม ${v} ไม้`);
-  add('💥','หลุมระเบิด',pick('worst',1,3),v=>`เกินพาร์ ${v} ไม้ในหลุมเดียว`);
-  return A;
+  const L=[],add=(e,n,r,txt)=>{if(r)L.push({e,n,names:r.w.map(x=>x.p.name),txt:txt(r.v)})};
+  // in priority order; the most telling ones first
+  const top=gSort(gRows().filter(r=>r.thru));
+  if(top.length>1&&!gSameRank(top[0],top[1]))L.push({e:'👑',n:'MVP ก๊วน',names:[top[0].p.name],txt:'ผู้ชนะของวันนี้'});
+  add('🐦','ตัวตึงเบอร์ดี้',pick('bird',1,1),v=>`${v} เบอร์ดี้`);
+  add('😎','Bingo ตัวพ่อ',pick('bingo',1,1),v=>`แตก ${v} ครั้ง`);
+  add('🔥','คัมแบ็กเกินต้าน',pick('comeback',1,2),v=>`9 หลังดีกว่า 9 หน้า ${v} ไม้`);
+  if(game==='team')add('🫶','เดอะแบก',pick('carry',1,2),v=>`หาแต้มให้ทีม ${v} แต้ม`);
+  if(game==='h2h')add('🍀','สายมู',pick('luck',1,2),v=>`ได้ต่อแล้วชนะ ${v} หลุม`);
+  add('🎢','ขึ้นสุดลงสุด',pick('swing',1,8),v=>`สกอร์ขึ้นลงรวม ${v} ไม้`);
+  add('🚀','ออกตัวแรง',pick('first3',-1),v=>`3 หลุมแรก ${toPar(v)}`);
+  add('🏁','ปิดจ็อบสวย',pick('last3',-1),v=>`3 หลุมสุดท้าย ${toPar(v)}`);
+  add('💥','พีคแบบผิดทาง',pick('worst',1,3),v=>`เกินพาร์ ${v} ไม้ในหลุมเดียว`);
+  add('🎯','มือปืนพาร์ 3',pick('p3',-1),v=>`หลุมพาร์ 3 รวม ${toPar(v)}`);
+  add('🦅','นักล่าพาร์ 5',pick('p5',-1),v=>`หลุมพาร์ 5 รวม ${toPar(v)}`);
+  add('🧱','นิ่งเป็นพระ',pick('bogey',-1),v=>v?`โบกี้แค่ ${v} หลุม`:'ไม่เสียเลยสักหลุม');
+  add('⛳','สายพาร์ ตัวจริง',pick('pars',1,4),v=>`พาร์ ${v} หลุม`);
+  add('🧊','ใจเย็นเหมือนตู้เย็น',pick('fridge',1,1),()=>'ไม่มีดับเบิลโบกี้ทั้งรอบ');
+  if(P.some(x=>x.bird>0))add('🐢','ช้าแต่ชัวร์',pick('steady',-1),v=>`ไม่มีเบอร์ดี้ แต่โบกี้แค่ ${v} หลุม`);
+  add('🥲','ไม่ไหวบอกไหว',pick('tough',1),v=>`รวม ${toPar(v)} แต่ไม่เคยเกินดับเบิล`);
+  // at most 8 a round, spread out so one player does not take them all
+  const MAX=8,cnt={},out=[],later=[];
+  L.forEach(a=>{if(out.length<MAX&&a.names.some(n=>(cnt[n]||0)<2)){out.push(a);a.names.forEach(n=>cnt[n]=(cnt[n]||0)+1)}else later.push(a)});
+  later.forEach(a=>{if(out.length<MAX)out.push(a)});
+  return out.sort((x,y)=>L.indexOf(x)-L.indexOf(y));
 }
 const awNames=a=>a.names.length>3?a.names.slice(0,3).join(', ')+` +${a.names.length-3}`:a.names.join(', ')+(a.names.length>1?' (ร่วม)':'');
 function awardsPanel(){const A=gAwards();if(!A.length)return'';
@@ -1899,11 +1927,12 @@ function teamCalc(){
   // each side's scores sorted best→worst; 1st meets 1st, 2nd meets 2nd … ; a pair win = 1 point, won with birdie or better = 2
   G.pars.forEach((par,i)=>{const side={};
     ['A','B'].forEach(k=>{const got=mem[k].map(p=>({id:p.id,v:hStat(p.id,i).val})).filter(x=>x.v!=null).sort((a,b)=>a.v-b.v);
-      side[k]={done:mem[k].length>0&&got.length===mem[k].length,vals:got.map(x=>x.v),sum:null};});
+      side[k]={done:mem[k].length>0&&got.length===mem[k].length,vals:got.map(x=>x.v),ids:got.map(x=>x.id),sum:null};});
     let w=null,m=0,pairs=[];
     if(r.ok&&side.A.done&&side.B.done){let pa=0,pb=0;
       for(let j=0;j<n;j++){const a=side.A.vals[j],b=side.B.vals[j];
-        if(a<b){const q=a<par?2:1;pa+=q;pairs.push({w:'A',q,a,b});}else if(b<a){const q=b<par?2:1;pb+=q;pairs.push({w:'B',q,a,b});}else pairs.push({w:'T',q:0,a,b});}
+        const ia=side.A.ids[j],ib=side.B.ids[j];
+        if(a<b){const q=a<par?2:1;pa+=q;pairs.push({w:'A',q,a,b,by:ia});}else if(b<a){const q=b<par?2:1;pb+=q;pairs.push({w:'B',q,a,b,by:ib});}else pairs.push({w:'T',q:0,a,b});}
       side.A.sum=pa;side.B.sum=pb;m=pa-pb;w=m>0?'A':m<0?'B':'T';r[w]++;r.played++;r.sumA+=pa;r.sumB+=pb;r.up+=m;}
     r.holes.push({A:side.A,B:side.B,w,m:Math.abs(m),pairs});});
   // up > 0: red ahead by that many points
