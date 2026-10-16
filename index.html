@@ -275,6 +275,12 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .muted2{color:#b9dcc6;font-size:.95rem}
 .story .btn{color:#13241a;background:#fff;border-color:#fff}.story .btn.primary{background:#7dffae;border-color:#7dffae;color:#0f3b26}.stnames{color:#dcefe3}
 .strow{display:flex;justify-content:space-between;gap:10px;padding:11px 14px;border-radius:12px;background:rgba(255,255,255,.12);font-size:1.02rem}
+.pname{background:none;border:0;padding:0;font:inherit;font-weight:600;color:inherit;text-align:left;text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}
+.sheetbg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:55;border:0}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:56;max-width:520px;margin:0 auto;max-height:88vh;overflow-y:auto;background:var(--bg);border-radius:20px 20px 0 0;padding:18px 16px 28px;display:flex;flex-direction:column;gap:12px;box-shadow:0 -10px 40px rgba(0,0,0,.3)}
+.pcard{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:2px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.pcard span{display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--f-num);font-size:.85rem}
+.pcard i{font-style:normal;font-size:.62rem;color:var(--muted)}.pcard .sum b{font-weight:700}
 .aw{display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
 .awe{font-size:1.8rem;line-height:1}
 .awn{font-weight:600}
@@ -812,7 +818,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.16-b';
+const APPV='2026.10.17-a';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1819,7 +1825,7 @@ async function sharePhoto(file){
    groups/<CODE>/scores/<pid>  one doc per player: h.<hole>.<enteredBy> = strokes, sig.<who> = time
    groups/<CODE>/members/<uid> = device allowed to write (proved by the secret key in the player link)
    Every player can enter any player's score; agreement between entries = verified. */
-let STORY=null,stTimer=null,gListEdit=false,gdb=null,gCan=null,G=null,GS={},gUnsub=[],gTab='hole',gHole=0,gMe=null,gNew=null,gRO=false;
+let PROF=null,STORY=null,stTimer=null,gListEdit=false,gdb=null,gCan=null,G=null,GS={},gUnsub=[],gTab='hole',gHole=0,gMe=null,gNew=null,gRO=false;
 const GKEY='golf-groups';
 function myGroups(){try{return JSON.parse(localStorage.getItem(GKEY)||'[]')}catch(e){return[]}}
 function rememberGroup(g){const l=myGroups().filter(x=>x.code!==g.code);l.unshift({code:g.code,course:g.course,date:g.date});try{localStorage.setItem(GKEY,JSON.stringify(l.slice(0,20)))}catch(e){}}
@@ -1828,7 +1834,7 @@ function setKey(c,k){try{localStorage.setItem('golf-gk-'+c,k)}catch(e){}}
 function getMe(c){try{return localStorage.getItem('golf-g-me-'+c)}catch(e){return null}}
 function setMe(c,p){try{if(p)localStorage.setItem('golf-g-me-'+c,p);else localStorage.removeItem('golf-g-me-'+c)}catch(e){}}
 const gCode=()=>{const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=A[Math.floor(Math.random()*A.length)];return s};
-function gStop(){gDelAsk=false;clearTimeout(stTimer);STORY=null;if(G&&G.code)gLeaveWatch(G.code);gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);gWatchers=null;}
+function gStop(){gDelAsk=false;PROF=null;clearTimeout(stTimer);STORY=null;if(G&&G.code)gLeaveWatch(G.code);gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);gWatchers=null;}
 async function checkMember(code){
   try{const u=await gdb.authReady;if(!u)return;const k=getKey(code);
     const m=gdb.doc(`groups/${code}/members/${u.uid}`);let ok=(await m.get()).exists;
@@ -2060,7 +2066,7 @@ function groupView(){
   const tabs=gRO?[['board','อันดับ'],['chat',chatLab],['card','การ์ด']].concat(isOwn?[['share','จัดการ']]:[]):[['hole','กรอก'],['board','อันดับ'],['chat',chatLab],['card','การ์ด'],['share','แชร์']];
   if(gRO&&(gTab==='hole'||(gTab==='share'&&!isOwn)))gTab='board';
   h+=`<div class="seg">${tabs.map(([k,l])=>`<button data-act="gtab" data-t="${k}" aria-pressed="${gTab===k}">${l}</button>`).join('')}</div>`;
-  h+=storyHTML();
+  h+=storyHTML()+profHTML();
   if(gTab==='hole')h+=gHoleView();else if(gTab==='board')h+=gBoardView();else if(gTab==='share')h+=gShareView();else if(gTab==='chat')h+=gChatView();else h+=gCardView();
   if(gRO&&!(G.owner===gdb.uid()))h+=`<button class="btn sm" style="align-self:center" data-act="gforget">ซ่อนก๊วนนี้จากรายการของฉัน</button>`;
   if(!gRO)h+=`<div class="muted" style="font-size:.78rem;text-align:center">คุณคือ <b>${gMe==='watch'?'ผู้ชม':esc(pName(gMe))}</b> · <button class="linkbtn" data-act="gwhoreset">เปลี่ยน</button></div>`;
@@ -2218,6 +2224,37 @@ function storyHTML(){if(!STORY)return'';const S=STORY.slides,i=STORY.i;
     <div class="stbody">${S[i].h}</div></div>`}
 function storyGo(i){clearTimeout(stTimer);if(!STORY)return;STORY.i=Math.max(0,Math.min(STORY.slides.length-1,i));render();
   if(STORY.i<STORY.slides.length-1)stTimer=setTimeout(()=>storyGo(STORY.i+1),5000);}
+/* ---------- การ์ดโปรไฟล์ผู้เล่น (แตะชื่อในหน้าอันดับ) ---------- */
+function profHTML(){if(!PROF||!G||!G.players)return'';const p=G.players.find(x=>x.id===PROF);if(!p)return'';
+  const game=gGame(),N=G.pars.length,rows=gSort(gRows()),r=rows.find(x=>x.p.id===p.id),k=rows.indexOf(r);
+  const rank=r.thru?rows.findIndex(x=>gSameRank(x,r))+1:null;
+  const d=G.pars.map((par,i)=>{const v=hStat(p.id,i).val;return v==null?null:v-par}),pl=d.filter(x=>x!=null);
+  const cnt=f=>pl.filter(f).length,played=d.map((x,i)=>x==null?null:i).filter(x=>x!=null);
+  // form = the last three holes played
+  const last=played.slice(-3),form=last.reduce((a,i)=>a+d[i],0);
+  const formTxt=last.length<3?'ยังเล่นไม่ถึง 3 หลุม':form<0?`🔥 กำลังร้อน (${toPar(form)} ใน 3 หลุมล่าสุด)`:form===0?`➖ นิ่ง (${toPar(form)} ใน 3 หลุมล่าสุด)`:form>=3?`🥶 กำลังเย็น (${toPar(form)} ใน 3 หลุมล่าสุด)`:`😐 พอไหว (${toPar(form)} ใน 3 หลุมล่าสุด)`;
+  let bingo=0,run=0,cur=0;d.forEach(x=>{if(x==null||x>0){run=0;cur=0;return}cur++;if(++run===3){run=0;bingo++}});
+  const best=played.length?played.reduce((b,i)=>d[i]<d[b]?i:b,played[0]):null,worst=played.length?played.reduce((b,i)=>d[i]>d[b]?i:b,played[0]):null;
+  const rt=resText(r,game==='team'?'stroke':game),w=winProb();
+  const segs=N===18?[[0,9,'OUT'],[9,18,'IN']]:[[0,N,(G.start||0)?'IN':'OUT']];
+  const card=segs.map(([a,b,l])=>{let sub=0,any=0;const cells=[];for(let i=a;i<b;i++){const v=hStat(p.id,i).val;if(v!=null){sub+=v;any=1}cells.push(`<span><i>${gNum(i)}</i>${v!=null?mark(v,G.pars[i]):'<b class="muted">·</b>'}</span>`)}
+    return `<div class="pcard">${cells.join('')}<span class="sum"><i>${l}</i><b>${any?sub:'–'}</b></span></div>`}).join('');
+  let extra='';
+  if(game==='team'){const tm=teamOf(p.id)||'A';extra=`<div class="rec"><span>ทีม</span><b><span class="tdot ${tm}"></span>${TEAMS[tm].n}</b></div>`;}
+  if(game==='h2h'){const H=h2hCalc();extra=H.pairs.filter(x=>x.a===p.id||x.b===p.id).map(x=>{const o=x.a===p.id?x.b:x.a,up=x.a===p.id?x.up:-x.up;
+    return `<div class="rec"><span>vs ${esc(pName(o))}</span><b>${fmtUp(up)}</b></div>`}).join('');}
+  return `<div class="sheetbg" data-act="profclose"></div><div class="sheet" role="dialog" aria-label="โปรไฟล์ ${esc(p.name)}">
+    <div class="top"><div><div class="label">${rank?`อันดับ ${rank} จาก ${G.players.length}`:'ยังไม่เริ่ม'} · เล่นแล้ว ${r.thru}/${N} หลุม</div><h2 style="margin:0">${esc(p.name)}</h2></div><button class="btn sm" data-act="profclose" aria-label="ปิด">✕</button></div>
+    <div class="stats"><div class="tile"><span class="label">สกอร์</span><span class="v">${r.thru?r.g:'–'}</span><span class="rel num ${relCls(r.toPar)}">${r.thru?toPar(r.toPar):''}</span></div>
+      <div class="tile"><span class="label">${game==='stableford'?'แต้ม':game==='s36'?'Net (ระบบ 36)':game==='h2h'?'UP รวม':'โอกาสชนะ'}</span><span class="v">${game==='stableford'||game==='s36'||game==='h2h'?(r.thru?esc(rt.main):'–'):(w&&!w.team?fmtPct(w.p[p.id]||0):'–')}</span></div></div>
+    ${card}
+    <div class="rec"><span>ฟอร์ม</span><b>${formTxt}</b></div>
+    <div class="rec"><span>เบอร์ดี้ขึ้นไป · พาร์ · โบกี้ · ดับเบิลขึ้นไป</span><b>${cnt(x=>x<=-1)} · ${cnt(x=>x===0)} · ${cnt(x=>x===1)} · ${cnt(x=>x>=2)}</b></div>
+    ${best!=null?`<div class="rec"><span>หลุมที่ดีที่สุด</span><b>หลุม ${gNum(best)} · ${diffName(d[best])}</b></div>`:''}
+    ${worst!=null&&d[worst]>0?`<div class="rec"><span>หลุมที่พลาดที่สุด</span><b>หลุม ${gNum(worst)} · ${diffName(d[worst])}</b></div>`:''}
+    <div class="rec"><span>Bingo (พาร์ติด 3)</span><b>${bingo?`แตก ${bingo} ครั้ง`:'–'}${cur>=2?` · ตอนนี้ติด ${cur} หลุม`:''}</b></div>
+    ${extra}
+  </div>`}
 function gBoardView(){
   const rows=gSort(gRows()),game=gGame(),sf=game==='stableford',s36=game==='s36',hh=game==='h2h';
   let rank=0,prev=null;
@@ -2228,7 +2265,7 @@ function gBoardView(){
   h+=`<div class="panel"><div class="top"><h2>${game==='team'?'อันดับรายคน':'อันดับ'}</h2><span class="muted" style="font-size:.8rem">${sf?'สเตเบิลฟอร์ด · ':''}อัปเดตสด</span></div><div class="board">
     <div class="br head"><span>#</span><span>ผู้เล่น</span><span>หลุม</span><span>รวม</span><span>${sf?'แต้ม':s36?'HCP':hh?'UP':'±พาร์'}</span>${anyH||s36?'<span>Net</span>':''}</div>`;
   rows.forEach((r,k)=>{if(prev===null||!gSameRank(r,prev)||!r.thru)rank=k+1;prev=r;
-    h+=`<div class="br ${r.p.id===gMe?'me':''}"><span class="num">${r.thru?rank:'–'}</span><span class="t">${game==='team'?`<span class="tdot ${teamOf(r.p.id)||'A'}"></span>`:''}${esc(r.p.name)}${r.conf?` <span class="chip bad sm">ไม่ตรง ${r.conf}</span>`:''}${r.sig.includes(r.p.id)?' <span class="chip ok sm">ยืนยันแล้ว</span>':''}</span>
+    h+=`<div class="br ${r.p.id===gMe?'me':''}"><span class="num">${r.thru?rank:'–'}</span><span class="t">${game==='team'?`<span class="tdot ${teamOf(r.p.id)||'A'}"></span>`:''}<button class="pname" data-act="gprof" data-p="${r.p.id}">${esc(r.p.name)}</button>${r.conf?` <span class="chip bad sm">ไม่ตรง ${r.conf}</span>`:''}${r.sig.includes(r.p.id)?' <span class="chip ok sm">ยืนยันแล้ว</span>':''}</span>
       <span class="num">${r.thru}</span><span class="num b">${r.thru?r.g:'–'}</span>${hh?`<span class="num b" style="color:var(${r.h2h>0?'--birdie':r.h2h<0?'--bogey':'--ink'})">${r.thru?(r.h2h>0?'+':'')+r.h2h:'–'}</span>`:s36?`<span class="num">${r.thru?r.s36hcp:'–'}</span><span class="num b ${r.thru?scCls(Math.sign(r.s36np)*Math.min(Math.abs(r.s36np),2)):''}">${r.thru?r.s36net:'–'}</span>`:sf?`<span class="num b" style="color:var(--accent)">${r.thru?r.pts:'–'}</span>`:`<span class="num b ${r.thru?scCls(Math.sign(r.toPar)*Math.min(Math.abs(r.toPar),2)):''}">${r.thru?toPar(r.toPar):'–'}</span>`}${anyH?`<span class="num">${r.thru&&r.hcp?r.net:'–'}</span>`:''}</div>`;});
   h+=`</div>${s36?`<div class="muted" style="font-size:.78rem">${S36_HELP}<br>ระหว่างเล่น คิดจากหลุมที่เล่นแล้ว (2 แต้มต่อหลุม − แต้มที่ได้)</div>`:''}${sf?`<div class="muted" style="font-size:.78rem">แต้มต่อหลุม: ${SF_HELP} (คิดจากสกอร์จริง ยังไม่หักแฮนดิแคป)</div>`:''}${anyH?'<div class="muted" style="font-size:.78rem">Net = สกอร์รวม − แฮนดิแคปตามสัดส่วนหลุมที่เล่น (ต้นแบบนี้ยังไม่ใช้ Stroke Index ของแต่ละหลุม)</div>':''}</div>`;
   if(hh)h+=h2hPanels();
@@ -2330,6 +2367,8 @@ function gClick(a,b){
     const g=cur?cur.g:hcDir[k];if(!g){toast('เลือกก่อนว่าใครเป็นคนต่อ');return true}
     const n=+b.dataset.n,hs=cur?cur.holes.slice():[],i=hs.indexOf(n);if(i>=0)hs.splice(i,1);else hs.push(n);hs.sort((x,y)=>x-y);
     hcDir[k]=g;hcSet(pa,pb,g,hs);render();return true}
+  if(a==='gprof'){PROF=b.dataset.p;render();return true}
+  if(a==='profclose'){PROF=null;render();return true}
   if(a==='gstory'){STORY={slides:storyData(),i:0};storyGo(0);return true}
   if(a==='stnext'&&STORY){storyGo(STORY.i+1);return true}
   if(a==='stprev'&&STORY){storyGo(STORY.i-1);return true}
