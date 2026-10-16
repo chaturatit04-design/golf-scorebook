@@ -259,6 +259,22 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .msg.mine{align-self:flex-end;background:var(--birdie-bg);border-radius:12px 12px 4px 12px}
 .msg .mh{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.75rem}
 .msg .mt{overflow-wrap:anywhere;white-space:pre-wrap}
+.picks{display:flex;flex-direction:column;gap:6px}
+.pk{display:grid;grid-template-columns:minmax(0,1fr) 38% 44px;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);text-align:left;font:inherit;min-height:44px}
+.pk.on{border-color:var(--accent);background:var(--soft)}.pk.win{border-color:#f2c230;box-shadow:inset 0 0 0 1px #f2c230}
+.pk:disabled{opacity:1;color:var(--ink)}.pk .num{text-align:right;font-weight:700}
+.pkn{font-weight:600;min-width:0;overflow-wrap:anywhere}.pkb{height:8px;background:var(--soft);border-radius:4px;overflow:hidden}.pkb i{display:block;height:100%;background:var(--accent);border-radius:4px}
+.story{position:fixed;inset:0;z-index:60;background:linear-gradient(160deg,#123d28,#1d6a43 55%,#0b2a1a);color:#fff;display:flex;flex-direction:column;padding:14px 20px 28px;max-width:520px;margin:0 auto}
+.stbars{display:flex;gap:4px}.stbars i{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden}.stbars i.done{background:#fff}
+.stbars i b{display:block;height:100%;width:0;background:#fff;animation:stfill 5s linear forwards}@keyframes stfill{to{width:100%}}
+.sttop{display:flex;justify-content:space-between;align-items:center;margin-top:10px;position:relative;z-index:2}
+.stbody{flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px;position:relative;z-index:3;pointer-events:none}
+.stbody button{pointer-events:auto}
+.stnav{position:absolute;top:70px;bottom:0;width:45%;background:none;border:0;z-index:2}.stnav.l{left:0}.stnav.r{right:0}
+.stbig{font-family:'Bai Jamjuree',sans-serif;font-size:2.3rem;font-weight:700;line-height:1.2}
+.muted2{color:#b9dcc6;font-size:.95rem}
+.story .btn{color:#13241a;background:#fff;border-color:#fff}.story .btn.primary{background:#7dffae;border-color:#7dffae;color:#0f3b26}.stnames{color:#dcefe3}
+.strow{display:flex;justify-content:space-between;gap:10px;padding:11px 14px;border-radius:12px;background:rgba(255,255,255,.12);font-size:1.02rem}
 .aw{display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
 .awe{font-size:1.8rem;line-height:1}
 .awn{font-weight:600}
@@ -796,7 +812,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.15-e';
+const APPV='2026.10.16-a';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -1330,6 +1346,7 @@ function chatHighlights(){
     if(G.ended||gAllDone()){
       if(t&&t.ok)add('fin',`🏁 จบรอบ! ${teamStatus(t)}`,9999);
       else if(!t){const r=gSort(gRows().filter(x=>x.thru))[0];if(r){const g=gGame();add('fin',`🏁 จบรอบ! 🏆 ${r.p.name} ชนะ ${g==='h2h'?fmtUp(r.h2h):g==='stableford'?r.pts+' แต้ม':g==='s36'?'Net '+r.s36net:`${r.g} (${toPar(r.toPar)})`}`,9999);}}}
+    {const win=pickWinner()||[],all=Object.values(GP).filter(x=>x&&x.p);if(all.length){const ok=all.filter(x=>win.includes(x.p));add('pick-'+ok.length,`🔮 ทายผู้ชนะถูก ${ok.length} จาก ${all.length} คน${ok.length?': '+ok.slice(0,5).map(x=>x.name).join(', '):''}`,10500);}}
     gAwards().forEach((a,j)=>add('aw-'+a.n,`${a.e} ${a.n}: ${awNames(a)} · ${a.txt}`,10000+j));
     if(changed)lsSet(k,JSON.stringify(seen));return out;}
 }
@@ -1473,7 +1490,7 @@ async function gDeleteGroup(){
   gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);
   try{const me=gdb.uid();
     // own membership goes last: a player's right to clear an abandoned room rests on it
-    for(const c of ['scores','chat','watch','members']){const ids=(await ref.ids(c)).filter(id=>!(c==='members'&&id===me));
+    for(const c of ['scores','chat','watch','picks','members']){const ids=(await ref.ids(c)).filter(id=>!(c==='members'&&id===me));
       for(let i=0;i<ids.length;i+=20)await Promise.all(ids.slice(i,i+20).map(id=>gdb.doc(`groups/${code}/${c}/${id}`).remove()));}
     await gdb.doc('live/'+code).remove().catch(()=>{});
     await gdb.doc('groupKeys/'+code).remove().catch(()=>{});
@@ -1544,6 +1561,7 @@ function srcGroupResult(){const game=gGame();let rows=gSort(gRows().filter(r=>r.
   src.awards=gAwards();
   return src}
 function openShare(src,theme){
+  clearTimeout(stTimer);STORY=null;
   SH={src,prev:view,size:'9x16',theme:theme||(src.kind==='gresult'?(src.game==='team'?'team':'rank'):'photo'),photo:null,name:src.name||getLastName()||'',stats:true,url:null,busy:false};
   view='share';render();shareDraw();window.scrollTo({top:0});
 }
@@ -1802,7 +1820,7 @@ async function sharePhoto(file){
    groups/<CODE>/scores/<pid>  one doc per player: h.<hole>.<enteredBy> = strokes, sig.<who> = time
    groups/<CODE>/members/<uid> = device allowed to write (proved by the secret key in the player link)
    Every player can enter any player's score; agreement between entries = verified. */
-let gListEdit=false,gdb=null,gCan=null,G=null,GS={},gUnsub=[],gTab='hole',gHole=0,gMe=null,gNew=null,gRO=false;
+let GP={},STORY=null,stTimer=null,gListEdit=false,gdb=null,gCan=null,G=null,GS={},gUnsub=[],gTab='hole',gHole=0,gMe=null,gNew=null,gRO=false;
 const GKEY='golf-groups';
 function myGroups(){try{return JSON.parse(localStorage.getItem(GKEY)||'[]')}catch(e){return[]}}
 function rememberGroup(g){const l=myGroups().filter(x=>x.code!==g.code);l.unshift({code:g.code,course:g.course,date:g.date});try{localStorage.setItem(GKEY,JSON.stringify(l.slice(0,20)))}catch(e){}}
@@ -1811,7 +1829,7 @@ function setKey(c,k){try{localStorage.setItem('golf-gk-'+c,k)}catch(e){}}
 function getMe(c){try{return localStorage.getItem('golf-g-me-'+c)}catch(e){return null}}
 function setMe(c,p){try{if(p)localStorage.setItem('golf-g-me-'+c,p);else localStorage.removeItem('golf-g-me-'+c)}catch(e){}}
 const gCode=()=>{const A='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=A[Math.floor(Math.random()*A.length)];return s};
-function gStop(){gDelAsk=false;if(G&&G.code)gLeaveWatch(G.code);gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);gWatchers=null;}
+function gStop(){gDelAsk=false;clearTimeout(stTimer);STORY=null;if(G&&G.code)gLeaveWatch(G.code);gUnsub.forEach(u=>{try{u()}catch(e){}});gUnsub=[];clearInterval(gHB);gWatchers=null;}
 async function checkMember(code){
   try{const u=await gdb.authReady;if(!u)return;const k=getKey(code);
     const m=gdb.doc(`groups/${code}/members/${u.uid}`);let ok=(await m.get()).exists;
@@ -1838,7 +1856,8 @@ function openGroup(code,key){
     if(view==='group'&&!G.loading)render();
     if(G&&!G.loading&&!G.missing&&!G.cleaned&&G.owner===gdb.uid()&&gAllDone()){G.cleaned=true;setTimeout(()=>gCleanup(code),5000);}
   },()=>{}));
-  GC=[];
+  GC=[];GP={};
+  gUnsub.push(ref.collection('picks').onSnapshot(s=>{GP={};s.docs.forEach(d=>{GP[d.id]=d.data()});if(view==='group'&&G&&!G.loading)render();},()=>{}));
   gUnsub.push(ref.latest('chat',150,s=>{
     GC=s.docs.map(d=>{const v=d.data()||{};const at=v.at&&v.at.toMillis?v.at.toMillis():Date.now();return {id:d.id,uid:v.uid,name:v.name||'?',role:v.role,text:v.text||'',at};}).reverse();
     if(view==='group'&&!G.loading)render();
@@ -1866,7 +1885,9 @@ const gNum=i=>i+1+(G.start||0);
 function gEntries(pid,i){const h=GS[pid]&&GS[pid].h&&GS[pid].h[String(gNum(i))];return h?Object.entries(h).filter(([,v])=>v!=null):[]}
 // groups made before the option existed keep cross-checking; new groups default to simple mode
 const gVerify=()=>!G||G.verify!==false;
+let SIMV=null; // while the win-chance simulation runs, scores come from here
 function hStat(pid,i){
+  if(SIMV){const v=SIMV[pid]?SIMV[pid][i]:null;return{st:v==null?'none':'ok',val:v,e:[],simple:true,by:pid}}
   const e=gEntries(pid,i);if(!e.length)return{st:'none',val:null,e};
   if(!gVerify()){const self=e.find(x=>x[0]===pid),pick=e.length===1?e[0]:(self||e[e.length-1]);return{st:'ok',val:pick[1],e:[pick],by:pick[0],simple:true};}
   const vals=new Set(e.map(x=>x[1]));const self=e.find(x=>x[0]===pid);
@@ -2041,6 +2062,7 @@ function groupView(){
   const tabs=gRO?[['board','อันดับ'],['chat',chatLab],['card','การ์ด']].concat(isOwn?[['share','จัดการ']]:[]):[['hole','กรอก'],['board','อันดับ'],['chat',chatLab],['card','การ์ด'],['share','แชร์']];
   if(gRO&&(gTab==='hole'||(gTab==='share'&&!isOwn)))gTab='board';
   h+=`<div class="seg">${tabs.map(([k,l])=>`<button data-act="gtab" data-t="${k}" aria-pressed="${gTab===k}">${l}</button>`).join('')}</div>`;
+  h+=storyHTML();
   if(gTab==='hole')h+=gHoleView();else if(gTab==='board')h+=gBoardView();else if(gTab==='share')h+=gShareView();else if(gTab==='chat')h+=gChatView();else h+=gCardView();
   if(gRO&&!(G.owner===gdb.uid()))h+=`<button class="btn sm" style="align-self:center" data-act="gforget">ซ่อนก๊วนนี้จากรายการของฉัน</button>`;
   if(!gRO)h+=`<div class="muted" style="font-size:.78rem;text-align:center">คุณคือ <b>${gMe==='watch'?'ผู้ชม':esc(pName(gMe))}</b> · <button class="linkbtn" data-act="gwhoreset">เปลี่ยน</button></div>`;
@@ -2138,11 +2160,90 @@ let hcOpen=null;const hcDir={};
 function hcSet(a,b,g,holes){
   if(!g||!holes.length){gPatch(a,{give:{[b]:null}});gPatch(b,{give:{[a]:null}});return}
   const r=g===a?b:a;gPatch(g,{give:{[r]:holes}});gPatch(r,{give:{[g]:null}});}
+/* ---------- ทายผู้ชนะ ---------- */
+const pickOpen=()=>G&&!G.ended&&!G.archived&&!G.players.every(p=>hStat(p.id,0).val!=null);
+function pickWinner(){if(!(G.ended||gAllDone()))return null;
+  if(gGame()==='team'){const t=teamCalc();return t.lead?[t.lead]:[]}
+  const r=gSort(gRows().filter(x=>x.thru));return r.length?r.filter(x=>gSameRank(x,r[0])).map(x=>x.p.id):[]}
+function pickOpts(){return gGame()==='team'?['A','B'].map(k=>({id:k,name:TEAMS[k].n})):G.players.map(p=>({id:p.id,name:p.name}))}
+function pickPanel(){
+  const opts=pickOpts(),all=Object.values(GP).filter(x=>x&&x.p),tot=all.length,me=gdb&&gdb.uid(),mine=GP[me]&&GP[me].p,open=pickOpen(),win=pickWinner();
+  if(!open&&!tot)return '';
+  let h=`<div class="panel"><div class="top"><h2>🔮 ทายผู้ชนะ</h2><span class="muted" style="font-size:.8rem">${tot} คนทาย</span></div>`;
+  if(win){const ok=all.filter(x=>win.includes(x.p));h+=`<div class="tstat">${ok.length?`ทายถูก ${ok.length} คน 🎉`:'รอบนี้ไม่มีใครทายถูก 😅'}</div>${ok.length?`<div class="muted" style="font-size:.85rem;text-align:center">${ok.map(x=>esc(x.name)).join(', ')}</div>`:''}`;}
+  else h+=`<div class="muted" style="font-size:.85rem">${open?'ใครจะชนะรอบนี้? แตะเลือก 1 ตัวเลือก เปลี่ยนใจได้จนกว่าทุกคนจะจบหลุมแรก':'ปิดทายแล้ว ลุ้นผลตอนจบรอบ'}</div>`;
+  if(open&&!chatName())h+=`<div class="field"><label class="label" for="chatname">ชื่อของคุณ (ใช้ทั้งทายผลและห้องเชียร์)</label><div class="row"><input id="chatname" class="cin" maxlength="30" autocomplete="off" placeholder="เช่น แฟนคลับบอย"><button class="btn primary" data-act="cname">ตกลง</button></div></div>`;
+  h+=`<div class="picks">${opts.map(o=>{const n=all.filter(x=>x.p===o.id).length,pc=tot?Math.round(100*n/tot):0;
+    return `<button class="pk ${mine===o.id?'on':''} ${win&&win.includes(o.id)?'win':''}" data-act="gpick" data-p="${o.id}" ${open?'':'disabled'}><span class="pkn">${win&&win.includes(o.id)?'🏆 ':''}${esc(o.name)}${mine===o.id?' ✓':''}</span><span class="pkb"><i style="width:${pc}%"></i></span><span class="num">${n}</span></button>`}).join('')}</div></div>`;
+  return h}
+/* ---------- โอกาสชนะสด ----------
+   plays the remaining holes out a few hundred times; each player's hole scores are drawn
+   from what they have done today, blended with a typical club golfer so a few holes don't swing it */
+let WP={key:null,res:null};const WP_RUNS=400;
+function winProb(){
+  if(!G||!G.players||G.ended||gAllDone())return null;
+  const P=G.players,V={};P.forEach(p=>V[p.id]=G.pars.map((_,i)=>hStat(p.id,i).val));
+  if(!P.some(p=>V[p.id].some(v=>v!=null)))return null;
+  const key=JSON.stringify([V,gGame(),G.teams||0,G.teamN||0,gGame()==='h2h'?hcPairs():0]);if(WP.key===key)return WP.res;
+  const prior=[[-1,.06],[0,.32],[1,.36],[2,.18],[3,.08]],dist={};
+  P.forEach(p=>{const w={};prior.forEach(([d,q])=>w[d]=q*4);V[p.id].forEach((v,i)=>{if(v==null)return;const d=Math.max(-2,Math.min(4,v-G.pars[i]));w[d]=(w[d]||0)+1});
+    const t=Object.values(w).reduce((a,b)=>a+b,0);dist[p.id]=Object.entries(w).map(([d,q])=>[+d,q/t]);});
+  let seed=20261016;const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff};
+  const draw=id=>{const r=rnd();let acc=0;for(const [d,q] of dist[id]){acc+=q;if(r<=acc)return d}return 0};
+  const team=gGame()==='team',win={};
+  try{for(let k=0;k<WP_RUNS;k++){const S={};P.forEach(p=>S[p.id]=V[p.id].map((v,i)=>v!=null?v:Math.max(1,G.pars[i]+draw(p.id))));SIMV=S;
+      let w;if(team){const t=teamCalc();w=t.lead?[t.lead]:['A','B']}else{const r=gSort(gRows());w=r.filter(x=>gSameRank(x,r[0])).map(x=>x.p.id)}
+      w.forEach(id=>win[id]=(win[id]||0)+1/w.length);}}
+  finally{SIMV=null}
+  const res={team,p:{}};Object.keys(win).forEach(id=>res.p[id]=win[id]/WP_RUNS);WP={key,res};return res;
+}
+const fmtPct=v=>v>=0.995?'99%':v>0&&v<0.01?'<1%':Math.round(v*100)+'%';
+function winPanel(){const w=winProb();if(!w)return'';
+  const items=(w.team?['A','B'].map(k=>({n:TEAMS[k].n,v:w.p[k]||0})):G.players.map(p=>({n:p.name,v:w.p[p.id]||0}))).sort((a,b)=>b.v-a.v);
+  return `<div class="panel"><div class="top"><h2>📊 โอกาสชนะ</h2><span class="muted" style="font-size:.78rem">อัปเดตทุกหลุม</span></div>
+    <div class="picks">${items.map((x,k)=>`<div class="pk ${k===0?'on':''}"><span class="pkn">${esc(x.n)}</span><span class="pkb"><i style="width:${Math.round(x.v*100)}%"></i></span><span class="num">${fmtPct(x.v)}</span></div>`).join('')}</div>
+    <div class="muted" style="font-size:.75rem">จำลองหลุมที่เหลือ ${WP_RUNS} รอบ จากสกอร์ที่ตีแล้วและฟอร์มของแต่ละคนวันนี้ เป็นการประมาณเพื่อความสนุก</div></div>`}
+/* ---------- สรุปรอบแบบสตอรี่ ---------- */
+function storyData(){
+  const t=gGame()==='team'?teamCalc():null,slides=[],N=G.pars.length;
+  const mode=gGame()==='team'?'แบ่งทีม':GTITLE[gGame()]||'สโตรก';
+  slides.push({k:'title',h:`<div class="muted2">สรุปรอบ · ${esc(fmtDate(G.date))}</div><div class="stbig">${esc(G.course)}</div><div>${G.players.length} คน · ${N} หลุม · ${esc(mode)}</div><div class="stnames">${G.players.map(p=>esc(p.name)).join(' · ')}</div>`});
+  // how the lead moved
+  const idx=[],moves=[];let prev=null;
+  G.pars.forEach((par,i)=>{if(!G.players.every(p=>hStat(p.id,i).val!=null))return;idx.push(i);const L=hlLeader(idx,t&&t.ok?t:null);if(!L||L.id===prev)return;
+    moves.push({hole:gNum(i),who:t?TEAMS[L.id].n:pName(L.id),txt:t?`${L.up} UP`:L.txt});prev=L.id;});
+  if(moves.length)slides.push({k:'lead',h:`<div class="muted2">เส้นทางผู้นำ</div><div class="stbig">${moves.length>1?`เปลี่ยนผู้นำ ${moves.length-1} ครั้ง`:'นำตั้งแต่ต้นจนจบ'}</div>${moves.slice(-6).map(m=>`<div class="strow"><span>หลังหลุม ${m.hole}</span><b>${esc(m.who)} <span class="muted2">${esc(m.txt)}</span></b></div>`).join('')}`});
+  // best shots of the day
+  const shots=[];G.players.forEach(p=>G.pars.forEach((par,i)=>{const v=hStat(p.id,i).val;if(v!=null&&v<par)shots.push({n:p.name,h:gNum(i),d:v-par,v})}));
+  shots.sort((a,b)=>a.d-b.d||a.h-b.h);
+  if(shots.length)slides.push({k:'shots',h:`<div class="muted2">ช็อตเด็ดของวัน</div><div class="stbig">${shots.length} ครั้งที่ต่ำกว่าพาร์</div>${shots.slice(0,6).map(x=>`<div class="strow"><span>${x.v===1?'🎯':x.d<=-2?'🦅':'🐦'} ${esc(x.n)}</span><b>${esc(diffName(x.d))} หลุม ${x.h}</b></div>`).join('')}`});
+  // hardest and easiest hole
+  const hs=G.pars.map((par,i)=>{const vs=G.players.map(p=>hStat(p.id,i).val).filter(v=>v!=null);return vs.length?{h:gNum(i),par,a:vs.reduce((x,y)=>x+y,0)/vs.length-par}:null}).filter(Boolean).sort((a,b)=>b.a-a.a);
+  if(hs.length>=3){const f=x=>(x>0?'+':'')+x.toFixed(1);slides.push({k:'holes',h:`<div class="muted2">สนามวันนี้</div><div class="stbig">หลุมปราบเซียน: หลุม ${hs[0].h}</div><div>พาร์ ${hs[0].par} · ก๊วนเฉลี่ย ${f(hs[0].a)}</div><div class="stbig" style="font-size:1.8rem;margin-top:18px">หลุมใจดี: หลุม ${hs[hs.length-1].h}</div><div>พาร์ ${hs[hs.length-1].par} · ก๊วนเฉลี่ย ${f(hs[hs.length-1].a)}</div>`});}
+  const A=gAwards();if(A.length)slides.push({k:'aw',h:`<div class="muted2">รางวัลประจำก๊วน</div>${A.slice(0,6).map(a=>`<div class="strow"><span>${a.e} ${esc(a.n)}</span><b>${esc(awNames(a))}</b></div>`).join('')}`});
+  // result
+  let res='';const win=pickWinner()||[],ok=Object.values(GP).filter(x=>x&&x.p&&win.includes(x.p));
+  if(t&&t.ok)res=`<div class="stbig">${esc(teamStatus(t))}</div><div class="strow"><span>${TEAMS.A.n}</span><b>ชนะ ${t.A} หลุม</b></div><div class="strow"><span>${TEAMS.B.n}</span><b>ชนะ ${t.B} หลุม</b></div>`;
+  else{const r=gSort(gRows().filter(x=>x.thru));res=`<div class="stbig">🏆 ${esc(r[0]?r[0].p.name:'')}</div>${r.slice(0,3).map((x,k)=>`<div class="strow"><span>${['🥇','🥈','🥉'][k]} ${esc(x.p.name)}</span><b>${esc(resText(x,gGame()).main)}</b></div>`).join('')}`;}
+  slides.push({k:'end',h:`<div class="muted2">ผลสุดท้าย</div>${res}${Object.keys(GP).length?`<div class="muted2" style="margin-top:8px">🔮 ทายผู้ชนะถูก ${ok.length} คน</div>`:''}
+    <div class="row" style="margin-top:14px"><button class="btn" data-act="streplay">ดูอีกครั้ง</button><button class="btn primary" data-act="gresultcard">แชร์การ์ดผล</button></div>`});
+  return slides;
+}
+function storyHTML(){if(!STORY)return'';const S=STORY.slides,i=STORY.i;
+  return `<div class="story" role="dialog" aria-label="สรุปรอบ"><div class="stbars">${S.map((_,k)=>`<i class="${k<i?'done':k===i?'cur':''}">${k===i?'<b></b>':''}</i>`).join('')}</div>
+    <div class="sttop"><span class="muted2">ParLive · ${i+1}/${S.length}</span><button class="btn sm" data-act="stclose" aria-label="ปิด">✕</button></div>
+    ${i>0?'<button class="stnav l" data-act="stprev" aria-label="ก่อนหน้า"></button>':''}${i<S.length-1?'<button class="stnav r" data-act="stnext" aria-label="ถัดไป"></button>':''}
+    <div class="stbody">${S[i].h}</div></div>`}
+function storyGo(i){clearTimeout(stTimer);if(!STORY)return;STORY.i=Math.max(0,Math.min(STORY.slides.length-1,i));render();
+  if(STORY.i<STORY.slides.length-1)stTimer=setTimeout(()=>storyGo(STORY.i+1),5000);}
 function gBoardView(){
   const rows=gSort(gRows()),game=gGame(),sf=game==='stableford',s36=game==='s36',hh=game==='h2h';
   let rank=0,prev=null;
   const anyH=!sf&&!s36&&G.players.some(p=>+p.hcp);
-  let h=game==='team'?teamPanel():'';
+  const done=G.ended||gAllDone();
+  let h=done?`<button class="btn primary full" data-act="gstory">▶ ดูสรุปรอบแบบสตอรี่</button>`:'';
+  h+=pickPanel();
+  h+=game==='team'?teamPanel():'';
   h+=`<div class="panel"><div class="top"><h2>${game==='team'?'อันดับรายคน':'อันดับ'}</h2><span class="muted" style="font-size:.8rem">${sf?'สเตเบิลฟอร์ด · ':''}อัปเดตสด</span></div><div class="board">
     <div class="br head"><span>#</span><span>ผู้เล่น</span><span>หลุม</span><span>รวม</span><span>${sf?'แต้ม':s36?'HCP':hh?'UP':'±พาร์'}</span>${anyH||s36?'<span>Net</span>':''}</div>`;
   rows.forEach((r,k)=>{if(prev===null||!gSameRank(r,prev)||!r.thru)rank=k+1;prev=r;
@@ -2150,6 +2251,7 @@ function gBoardView(){
       <span class="num">${r.thru}</span><span class="num b">${r.thru?r.g:'–'}</span>${hh?`<span class="num b" style="color:var(${r.h2h>0?'--birdie':r.h2h<0?'--bogey':'--ink'})">${r.thru?(r.h2h>0?'+':'')+r.h2h:'–'}</span>`:s36?`<span class="num">${r.thru?r.s36hcp:'–'}</span><span class="num b ${r.thru?scCls(Math.sign(r.s36np)*Math.min(Math.abs(r.s36np),2)):''}">${r.thru?r.s36net:'–'}</span>`:sf?`<span class="num b" style="color:var(--accent)">${r.thru?r.pts:'–'}</span>`:`<span class="num b ${r.thru?scCls(Math.sign(r.toPar)*Math.min(Math.abs(r.toPar),2)):''}">${r.thru?toPar(r.toPar):'–'}</span>`}${anyH?`<span class="num">${r.thru&&r.hcp?r.net:'–'}</span>`:''}</div>`;});
   h+=`</div>${s36?`<div class="muted" style="font-size:.78rem">${S36_HELP}<br>ระหว่างเล่น คิดจากหลุมที่เล่นแล้ว (2 แต้มต่อหลุม − แต้มที่ได้)</div>`:''}${sf?`<div class="muted" style="font-size:.78rem">แต้มต่อหลุม: ${SF_HELP} (คิดจากสกอร์จริง ยังไม่หักแฮนดิแคป)</div>`:''}${anyH?'<div class="muted" style="font-size:.78rem">Net = สกอร์รวม − แฮนดิแคปตามสัดส่วนหลุมที่เล่น (ต้นแบบนี้ยังไม่ใช้ Stroke Index ของแต่ละหลุม)</div>':''}</div>`;
   if(hh)h+=h2hPanels();
+  h+=winPanel();
   h+=awardsPanel();
   if(rows.some(r=>r.thru))h+=`<button class="btn full" data-act="gresultcard">การ์ดผลก๊วน (แชร์ลง LINE / โซเชียล)</button>`;
   if(G.owner===gdb.uid()&&!G.ended&&!gAllDone()&&gThru()>0)h+=`<button class="btn full" data-act="gend">จบรอบ</button>`;
@@ -2247,6 +2349,14 @@ function gClick(a,b){
     const g=cur?cur.g:hcDir[k];if(!g){toast('เลือกก่อนว่าใครเป็นคนต่อ');return true}
     const n=+b.dataset.n,hs=cur?cur.holes.slice():[],i=hs.indexOf(n);if(i>=0)hs.splice(i,1);else hs.push(n);hs.sort((x,y)=>x-y);
     hcDir[k]=g;hcSet(pa,pb,g,hs);render();return true}
+  if(a==='gpick'){if(!pickOpen()){toast('ปิดทายแล้ว');return true}const name=chatName();if(!name){toast('ใส่ชื่อก่อนทาย');return true}
+    const pid=b.dataset.p;gdb.authReady.then(u=>{if(!u)throw{code:'auth'};GP[u.uid]={p:pid,name};render();return gdb.doc(`groups/${G.code}/picks/${u.uid}`).stamp({p:pid,name},'at')})
+      .catch(e=>{console.error(e);toast('ส่งคำทายไม่สำเร็จ');});return true}
+  if(a==='gstory'){STORY={slides:storyData(),i:0};storyGo(0);return true}
+  if(a==='stnext'&&STORY){storyGo(STORY.i+1);return true}
+  if(a==='stprev'&&STORY){storyGo(STORY.i-1);return true}
+  if(a==='streplay'&&STORY){storyGo(0);return true}
+  if(a==='stclose'){clearTimeout(stTimer);STORY=null;render();return true}
   if(a==='gawardcard'){openShare(srcGroupResult(),'awards');return true}
   if(a==='gdelask'){gDelAsk=true;render();return true}
   if(a==='gdelno'){gDelAsk=false;render();return true}
