@@ -281,6 +281,9 @@ textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radi
 .pcard{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:2px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
 .pcard span{display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--f-num);font-size:.85rem}
 .pcard i{font-style:normal;font-size:.62rem;color:var(--muted)}.pcard .sum b{font-weight:700}
+.cpick{display:flex;flex-direction:column;gap:6px}
+.cp{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);font:inherit;min-height:44px}
+.cp span{font-size:.8rem}.cp[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:var(--soft)}
 .aw{display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
 .awe{font-size:1.8rem;line-height:1}
 .awn{font-weight:600}
@@ -818,7 +821,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.21-b';
+const APPV='2026.10.21-c';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -916,11 +919,21 @@ function trendChart(done){
   <text x="${pl}" y="${H-6}" font-size="10" fill="var(--muted)">${fmtDate(pts[0].d)}</text><text x="${W-pr}" y="${H-6}" font-size="10" text-anchor="end" fill="var(--muted)">${fmtDate(pts[pts.length-1].d)}</text></svg>
   <div class="muted" style="font-size:.8rem">นับเฉพาะรอบที่เล่นครบ 18 หลุม · ดีที่สุดในช่วงนี้ ${best}</div></div>`;
 }
+/* ---------- course picker: tap a listed course, or type another ---------- */
+const cOther={};
+function coursePick(id,val,label){
+  const listed=Object.keys(courses).filter(n=>courses[n].isShared);
+  const recent=[...new Set(sorted().map(r=>r.course))].filter(n=>n&&!listed.includes(n)).slice(0,4);
+  const all=listed.concat(recent),custom=cOther[id]||(val&&!all.includes(val));
+  const parOf=n=>{const c=courses[n];if(!c)return'';const ps=[...Array(18)].map((_,i)=>c.holes[i+1]&&c.holes[i+1].par);return ps.every(Boolean)?` · พาร์ ${ps.reduce((a,b)=>a+b,0)}`:''};
+  return `<div class="field"><span class="label">${label}</span><div class="cpick">${all.map(n=>`<button class="cp" data-act="cpick" data-f="${id}" data-v="${esc(n)}" aria-pressed="${!custom&&val===n}"><b>${esc(n)}</b><span class="muted">${listed.includes(n)?'สนามในระบบ':'เคยเล่น'}${parOf(n)}</span></button>`).join('')}
+    <button class="cp" data-act="cother" data-f="${id}" aria-pressed="${!!custom}"><b>+ สนามอื่น</b><span class="muted">พิมพ์ชื่อเอง</span></button></div>
+    ${custom?`<input id="${id}" value="${esc(val||'')}" placeholder="พิมพ์ชื่อสนาม" autocomplete="off" aria-label="ชื่อสนาม">`:`<input type="hidden" id="${id}" value="${esc(val||'')}">`}</div>`}
 function setupView(){
   const names=[...new Set(sorted().map(r=>r.course).concat(Object.keys(courses)))];
   return `${header('รอบใหม่')}
   <div class="panel">
-    <div class="field"><label class="label" for="course">ชื่อสนาม</label><input id="course" list="courselist" value="${esc(setup.course)}" placeholder="เช่น สนามกอล์ฟกองทัพบก" autocomplete="off"><datalist id="courselist">${names.map(c=>`<option value="${esc(c)}">`).join('')}</datalist></div>
+    ${coursePick('course',setup.course,'สนาม')}
     <div class="field"><label class="label" for="date">วันที่</label><input id="date" type="date" value="${setup.date}"></div>
     <div class="field"><span class="label">จำนวนหลุม</span><div class="seg">
       <button data-act="holes" data-n="18" aria-pressed="${setup.holes===18}">18 หลุม</button>
@@ -1169,7 +1182,7 @@ function eFormView(){
   const f=eNew,names=Object.keys(courses),edit=!!f.id;
   return `<div class="top"><button class="btn" data-act="${edit?'eeditx':'events'}">‹ ${edit?'กลับ':'นัดออกรอบ'}</button></div><div><div class="label">${edit?'แก้ไข / เลื่อนนัด':'นัดใหม่'}</div><h1>${edit?'แก้ไขนัด':'สร้างนัด'}</h1></div>
   <div class="panel">
-    <div class="field"><label class="label" for="ecourse">สนาม</label><input id="ecourse" list="ecl" value="${esc(f.course)}" autocomplete="off"><datalist id="ecl">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+    ${coursePick('ecourse',f.course,'สนาม')}
     <div class="row2"><div class="field"><label class="label" for="edate">วันที่เล่น</label><input id="edate" type="date" value="${f.date}"></div>
       <div class="field"><label class="label" for="etime">เวลาทีออฟ</label><input id="etime" type="time" value="${f.time}"></div></div>
     <div class="row2"><div class="field"><label class="label" for="ecap">รับสูงสุด (คน)</label><select id="ecap">${[...Array(9)].map((_,i)=>i+2).map(n=>`<option ${n===f.cap?'selected':''}>${n}</option>`).join('')}</select></div>
@@ -2006,7 +2019,7 @@ function gNewView(){gNewFix();
   const names=Object.keys(courses);
   return `<div class="top"><button class="btn" data-act="groups">‹ ก๊วน</button></div><div><div class="label">ก๊วนใหม่</div><h1>สร้างก๊วน</h1></div>
   <div class="panel">
-    <div class="field"><label class="label" for="gcourse">สนาม</label><input id="gcourse" list="gcl" value="${esc(gNew.course)}" autocomplete="off"><datalist id="gcl">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+    ${coursePick('gcourse',gNew.course,'สนาม')}
     <div class="field"><label class="label" for="gdate">วันที่</label><input id="gdate" type="date" value="${gNew.date}"></div>
     <div class="field"><span class="label">จำนวนหลุม</span><div class="seg">
       <button data-act="gholes" data-n="18" aria-pressed="${gNew.holes===18}">18 หลุม</button><button data-act="gholes" data-n="9" aria-pressed="${gNew.holes===9&&!gNew.start}">9 หน้า</button><button data-act="gholes" data-n="9b" aria-pressed="${gNew.holes===9&&gNew.start===9}">9 หลัง</button></div></div>
@@ -2451,6 +2464,12 @@ app.addEventListener('click',e=>{
     paintMapParts();return;
   }
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act;
+  if(a==='cpick'||a==='cother'){const f=b.dataset.f,v=a==='cpick'?b.dataset.v:'';cOther[f]=a==='cother';
+    // keep what was typed in the rest of the form, then set the course
+    if(f==='course'&&setup){readSetupFields();setup.course=v;if(v)setup.pars=parsFor(v,setup.holes,setup.start);}
+    else if(f==='ecourse'&&eNew){readEForm();eNew.course=v;}
+    else if(f==='gcourse'&&gNew){readGNew();gNew.course=v;}
+    render();if(a==='cother'){const el=document.getElementById(f);if(el)el.focus();}return}
   if(a==='new')return newRound();
   if(shareClick(a,b))return;
   if(a==='sharecard'&&cur){openShare(srcFromRound(cur));return}
