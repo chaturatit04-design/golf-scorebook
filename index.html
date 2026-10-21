@@ -821,7 +821,7 @@ function renderInner(){
   const cl2=document.getElementById('chatlist');if(cl2)cl2.scrollTop=nearBottom?cl2.scrollHeight:prevTop;
 }
 function header(sub){return `<div><div class="label">${sub||'สกอร์สด · ก๊วน · นัดออกรอบ'}</div><h1 class="brand">Par<span>Live</span></h1></div>`}
-const APPV='2026.10.21-d';
+const APPV='2026.10.21-e';
 function backupHTML(){return `<details class="panel"><summary class="label">สำรอง / นำเข้ารอบ</summary>
   <div class="muted" style="font-size:.85rem">รอบส่วนตัวเก็บอยู่ในมือถือเครื่องนี้ ส่งออกเป็นไฟล์ไว้สำรอง หรือนำไฟล์มาใส่ในเครื่องใหม่ได้</div>
   <div class="row"><button class="btn" data-act="bimport">นำเข้ารอบจากไฟล์</button><button class="btn" data-act="bexport" ${rounds.length?'':'disabled'}>ส่งออกรอบทั้งหมด</button></div>
@@ -2409,7 +2409,8 @@ function gClick(a,b){
 function newRound(){
   const last=sorted()[0];
   const firstShared=Object.keys(courses).find(n=>courses[n].isShared);
-  const c0=last?last.course:(firstShared||'');
+  // start on the last course played if it is one in the system, else the first system course
+  const c0=last&&courses[last.course]&&courses[last.course].isShared?last.course:(firstShared||'');
   setup={course:c0,date:today(),holes:18,start:0,pars:parsFor(c0,18,0)};
   view='setup';render();
 }
